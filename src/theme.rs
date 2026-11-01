@@ -1,39 +1,36 @@
-//! Цвета и шрифты в духе Windows 11. Все цвета интерфейса берутся отсюда,
-//! светлая и тёмная схемы переключаются вместе с системной темой.
-//! Контраст текста проверен: основной и вторичный текст не ниже 4.5:1
-//! на фоне окна и карточек, текст на акцентной кнопке не ниже 4.5:1.
+//! Единственный набор цветов и шрифтов программы и мастера установки: нейтральная бумага
+//! днём, тёмное стекло ночью, цвет только там, где он что-то значит (работает, плохо, ошибка).
+//! Светлая и тёмная схемы переключаются вместе с системной темой.
+//! Контраст проверяется тестами внизу файла.
 
+use eframe::egui::epaint::text::{FontTweak, VariationCoords};
 use eframe::egui::{
-    self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, Shadow, Stroke, Theme,
-    Visuals,
+    self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, Shadow, Stroke, Theme, Visuals,
 };
 use std::sync::Arc;
 
 pub struct Palette {
     /// Фон окна.
-    pub bg: Color32,
-    /// Карточки и списки.
-    pub surface: Color32,
-    pub surface_hover: Color32,
-    /// Выбранная строка списка.
-    pub surface_selected: Color32,
-    /// Декоративные границы и разделители.
-    pub border: Color32,
+    pub ground: Color32,
+    /// Модальные окна, текст на чернильной заливке.
+    pub sheet: Color32,
+    /// Заливка простой кнопки и поля только для чтения.
+    pub sheet_hover: Color32,
+    /// Основной текст, главная кнопка, выбранная строка.
+    pub ink: Color32,
+    /// Вторичный текст.
+    pub ink_weak: Color32,
+    /// Волосные линии.
+    pub rule: Color32,
     /// Границы элементов управления (не ниже 3:1 к фону).
-    pub border_strong: Color32,
-    pub text: Color32,
-    pub text_weak: Color32,
-    pub accent: Color32,
-    pub on_accent: Color32,
-    /// Фон метки «Обход ограничений ИИ».
-    pub accent_soft: Color32,
-    /// Текст на `accent_soft` и акцентные надписи.
-    pub accent_text: Color32,
-    pub danger_fill: Color32,
+    pub rule_strong: Color32,
+    /// Разрушающие действия и ошибки.
+    pub danger: Color32,
     pub on_danger: Color32,
-    pub danger_text: Color32,
-    pub warn_text: Color32,
-    pub success_text: Color32,
+    /// Состояние «работает».
+    pub good: Color32,
+    /// Состояние «внимание».
+    pub warn: Color32,
 }
 
 const fn hex(rgb: u32) -> Color32 {
@@ -41,53 +38,49 @@ const fn hex(rgb: u32) -> Color32 {
 }
 
 pub const LIGHT: Palette = Palette {
-    bg: hex(0xF3F3F3),
-    surface: hex(0xFFFFFF),
-    surface_hover: hex(0xF6F6F6),
-    surface_selected: hex(0xE8F1FB),
-    border: hex(0xE3E3E3),
-    border_strong: hex(0x8A8A8A),
-    text: hex(0x1B1B1B),
-    text_weak: hex(0x5C5C5C),
-    accent: hex(0x005FB8),
-    on_accent: hex(0xFFFFFF),
-    accent_soft: hex(0xE0EDFA),
-    accent_text: hex(0x00508F),
-    danger_fill: hex(0xC42B1C),
-    on_danger: hex(0xFFFFFF),
-    danger_text: hex(0xB3261E),
-    warn_text: hex(0x8A5300),
-    success_text: hex(0x0E700E),
+    ground: hex(0xEFEADD),
+    sheet: hex(0xFAF7EF),
+    sheet_hover: hex(0xEEE9DB),
+    ink: hex(0x1B1D21),
+    ink_weak: hex(0x5B5A54),
+    rule: hex(0xD8D2C1),
+    rule_strong: hex(0x87826F),
+    danger: hex(0xA6171F),
+    on_danger: hex(0xFBF8F0),
+    good: hex(0x12743A),
+    warn: hex(0x8A5300),
 };
 
 pub const DARK: Palette = Palette {
-    bg: hex(0x202020),
-    surface: hex(0x2B2B2B),
-    surface_hover: hex(0x323232),
-    surface_selected: hex(0x1F3447),
-    border: hex(0x3B3B3B),
-    border_strong: hex(0x8F8F8F),
-    text: hex(0xF3F3F3),
-    text_weak: hex(0xB4B4B4),
-    accent: hex(0x60CDFF),
-    on_accent: hex(0x000000),
-    accent_soft: hex(0x1B3A52),
-    accent_text: hex(0x8FDCFF),
-    danger_fill: hex(0xC42B1C),
-    on_danger: hex(0xFFFFFF),
-    danger_text: hex(0xFF99A4),
-    warn_text: hex(0xFCE100),
-    success_text: hex(0x6CCB5F),
+    ground: hex(0x101317),
+    sheet: hex(0x191D23),
+    sheet_hover: hex(0x242A32),
+    ink: hex(0xEDE7D9),
+    ink_weak: hex(0xA9A598),
+    rule: hex(0x2C3239),
+    rule_strong: hex(0x7D8086),
+    danger: hex(0xFF8F88),
+    on_danger: hex(0x12151A),
+    good: hex(0x4FCC7D),
+    warn: hex(0xF2B84B),
 };
 
 pub fn palette(ui: &egui::Ui) -> &'static Palette {
     if ui.visuals().dark_mode { &DARK } else { &LIGHT }
 }
 
-pub const SEMIBOLD: &str = "semibold";
+// ---------- Шрифты ----------
+
+const SEMI: &str = "semibold";
+const DISPLAY: &str = "display";
 
 pub fn semibold() -> FontFamily {
-    FontFamily::Name(SEMIBOLD.into())
+    FontFamily::Name(SEMI.into())
+}
+
+/// Узкое жирное начертание для одного крупного заголовка на экране.
+pub fn display() -> FontFamily {
+    FontFamily::Name(DISPLAY.into())
 }
 
 pub fn install(ctx: &egui::Context) {
@@ -96,15 +89,15 @@ pub fn install(ctx: &egui::Context) {
     ctx.set_visuals_of(Theme::Dark, visuals(&DARK, true));
     ctx.all_styles_mut(|style| {
         style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        style.spacing.button_padding = egui::vec2(12.0, 5.0);
-        // Не меньше 24 px по высоте для любой кнопки и флажка.
-        style.spacing.interact_size.y = 28.0;
+        style.spacing.button_padding = egui::vec2(12.0, 6.0);
+        // Не меньше 24 px по высоте для любого элемента; свои элементы выше сами.
+        style.spacing.interact_size.y = 24.0;
         style.spacing.window_margin = egui::Margin::same(20);
         for (text_style, font) in style.text_styles.iter_mut() {
             font.size = match text_style {
-                egui::TextStyle::Heading => 22.0,
-                egui::TextStyle::Small => 12.0,
-                egui::TextStyle::Monospace => 13.5,
+                egui::TextStyle::Heading => 21.0,
+                egui::TextStyle::Small => 12.5,
+                egui::TextStyle::Monospace => 13.0,
                 _ => 14.0,
             };
         }
@@ -114,94 +107,146 @@ pub fn install(ctx: &egui::Context) {
     });
 }
 
+/// Межстрочный зазор Bahnschrift, 0.2 кегля, egui кладёт под строку целиком, и текст в
+/// кнопках и строках сидит выше середины. Половина зазора переносится наверх сдвигом букв.
+pub const GLYPH_SHIFT: f32 = 0.1;
+
+/// Bahnschrift один переменный файл на все начертания: каждое становится отдельным шрифтом
+/// с осями `wght` и `wdth` из `FontTweak::coords`, файл в памяти общий. Без него Segoe UI.
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     let fallbacks = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
-    let mut load = |name: &str, file: &str| -> bool {
-        match std::fs::read(format!(r"C:\Windows\Fonts\{file}")) {
-            Ok(bytes) => {
-                fonts.font_data.insert(name.into(), Arc::new(FontData::from_owned(bytes)));
-                true
-            }
-            Err(_) => false,
+    let read = |file: &str| std::fs::read(format!(r"C:\Windows\Fonts\{file}")).ok().map(Arc::new);
+    let bahnschrift = read("bahnschrift.ttf");
+    let mut chains: [Vec<String>; 3] = Default::default();
+    if let Some(file) = &bahnschrift {
+        let faces = [("bahnschrift", 400.0, 100.0), ("bahnschrift-semi", 600.0, 100.0), ("bahnschrift-display", 700.0, 75.0)];
+        for (chain, (name, weight, width)) in chains.iter_mut().zip(faces) {
+            let tweak = FontTweak {
+                coords: VariationCoords::new([(b"wght", weight), (b"wdth", width)]),
+                hinting: Some(false),
+                y_offset_factor: GLYPH_SHIFT,
+                ..Default::default()
+            };
+            fonts.font_data.insert(name.into(), Arc::new(FontData::from_blob(file.clone(), 0).tweak(tweak)));
+            chain.push(name.to_string());
         }
+    }
+    // Символы, которых нет в Bahnschrift, и вся программа, если его нет в системе.
+    let mut load = |name: &str, file: &str| {
+        let data = read(file);
+        let found = data.is_some();
+        if let Some(data) = data {
+            fonts.font_data.insert(name.into(), Arc::new(FontData::from_blob(data, 0)));
+        }
+        found
     };
     let regular = load("segoe", "segoeui.ttf");
     let bold = load("segoe-semibold", "seguisb.ttf");
     let mono = load("consolas", "consola.ttf");
-
-    if regular {
-        fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "segoe".into());
+    for (i, chain) in chains.iter_mut().enumerate() {
+        if i > 0 && bold {
+            chain.push("segoe-semibold".to_string());
+        }
+        if regular {
+            chain.push("segoe".to_string());
+        }
+        chain.extend(fallbacks.iter().cloned());
     }
-    let mut semi = Vec::new();
-    if bold {
-        semi.push("segoe-semibold".to_string());
-    } else if regular {
-        semi.push("segoe".to_string());
-    }
-    semi.extend(fallbacks);
+    let [body, semi, narrow] = chains;
+    fonts.families.insert(FontFamily::Proportional, body);
     fonts.families.insert(semibold(), semi);
+    fonts.families.insert(display(), narrow);
     if mono {
         fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "consolas".into());
     }
     ctx.set_fonts(fonts);
 }
 
+// ---------- Обычные элементы egui ----------
+
 fn visuals(p: &Palette, dark: bool) -> Visuals {
     let mut v = if dark { Visuals::dark() } else { Visuals::light() };
-    let radius = CornerRadius::same(6);
+    let radius = CornerRadius::same(8);
 
-    v.panel_fill = p.bg;
-    v.window_fill = p.surface;
-    v.window_stroke = Stroke::new(1.0, p.border);
+    v.panel_fill = p.ground;
+    v.window_fill = p.sheet;
+    v.window_stroke = Stroke::new(1.0, p.rule_strong);
     v.window_corner_radius = CornerRadius::same(10);
-    v.window_shadow = Shadow {
-        offset: [0, 8],
-        blur: 28,
-        spread: 0,
-        color: Color32::from_black_alpha(if dark { 110 } else { 40 }),
-    };
-    v.faint_bg_color = p.surface;
-    v.extreme_bg_color = if dark { hex(0x1C1C1C) } else { p.surface };
+    v.window_shadow = Shadow::NONE;
+    v.popup_shadow = Shadow::NONE;
+    v.menu_corner_radius = radius;
+    v.faint_bg_color = p.sheet;
+    v.extreme_bg_color = p.sheet_hover;
+    v.code_bg_color = p.sheet_hover;
     v.override_text_color = None;
-    v.weak_text_color = Some(p.text_weak);
-    v.hyperlink_color = p.accent_text;
-    v.warn_fg_color = p.warn_text;
-    v.error_fg_color = p.danger_text;
-    v.selection.bg_fill = p.accent;
-    v.selection.stroke = Stroke::new(1.5, p.on_accent);
+    v.weak_text_color = Some(p.ink_weak);
+    v.hyperlink_color = p.ink;
+    v.warn_fg_color = p.warn;
+    v.error_fg_color = p.danger;
+    // Выделение лежит под текстом: сплошная чернильная заливка съела бы буквы.
+    v.selection.bg_fill = p.ink.gamma_multiply(0.22);
+    v.selection.stroke = Stroke::new(1.0, p.ink);
+    v.text_cursor.stroke = Stroke::new(1.5, p.ink);
 
     let w = &mut v.widgets;
-    w.noninteractive.bg_fill = p.surface;
-    w.noninteractive.weak_bg_fill = p.surface;
-    w.noninteractive.bg_stroke = Stroke::new(1.0, p.border);
-    w.noninteractive.fg_stroke = Stroke::new(1.0, p.text);
+    w.noninteractive.bg_fill = p.sheet;
+    w.noninteractive.weak_bg_fill = p.sheet;
+    w.noninteractive.bg_stroke = Stroke::new(1.0, p.rule);
+    w.noninteractive.fg_stroke = Stroke::new(1.0, p.ink);
     w.noninteractive.corner_radius = radius;
 
-    let control = if dark { hex(0x373737) } else { hex(0xFBFBFB) };
-    w.inactive.bg_fill = control;
-    w.inactive.weak_bg_fill = control;
-    // Рамки флажков и переключателей: не ниже 3:1 к фону карточки.
-    w.inactive.bg_stroke = Stroke::new(1.0, if dark { hex(0x7A7A7A) } else { hex(0x8A8A8A) });
-    w.inactive.fg_stroke = Stroke::new(1.0, p.text);
+    let rest = p.sheet_hover.gamma_multiply(0.45);
+    w.inactive.bg_fill = p.sheet_hover;
+    w.inactive.weak_bg_fill = rest;
+    w.inactive.bg_stroke = Stroke::new(1.0, p.rule_strong);
+    w.inactive.fg_stroke = Stroke::new(1.0, p.ink);
     w.inactive.corner_radius = radius;
 
-    let hover = if dark { hex(0x3F3F3F) } else { hex(0xF2F2F2) };
-    w.hovered.bg_fill = hover;
-    w.hovered.weak_bg_fill = hover;
-    w.hovered.bg_stroke = Stroke::new(1.0, p.border_strong);
-    w.hovered.fg_stroke = Stroke::new(1.5, p.text);
+    w.hovered.bg_fill = p.sheet_hover;
+    w.hovered.weak_bg_fill = p.sheet_hover;
+    w.hovered.bg_stroke = Stroke::new(1.0, p.ink);
+    w.hovered.fg_stroke = Stroke::new(1.0, p.ink);
     w.hovered.corner_radius = radius;
     w.hovered.expansion = 0.0;
 
-    let pressed = if dark { hex(0x2F2F2F) } else { hex(0xEAEAEA) };
-    w.active.bg_fill = pressed;
-    w.active.weak_bg_fill = pressed;
-    w.active.bg_stroke = Stroke::new(1.0, p.border_strong);
-    w.active.fg_stroke = Stroke::new(1.5, p.text);
-    w.active.corner_radius = radius;
-    w.active.expansion = 0.0;
-
-    w.open = w.active;
+    w.active = w.hovered;
+    w.open = w.hovered;
     v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn luminance(c: Color32) -> f32 {
+        let channel = |v: u8| {
+            let v = v as f32 / 255.0;
+            if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        };
+        0.2126 * channel(c.r()) + 0.7152 * channel(c.g()) + 0.0722 * channel(c.b())
+    }
+
+    fn contrast(a: Color32, b: Color32) -> f32 {
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn text_and_status_stay_readable_on_both_surfaces() {
+        for p in [&LIGHT, &DARK] {
+            for surface in [p.ground, p.sheet] {
+                for text in [p.ink, p.ink_weak, p.danger, p.good, p.warn] {
+                    assert!(contrast(text, surface) >= 4.5, "{text:?} на {surface:?}");
+                }
+                assert!(contrast(p.rule_strong, surface) >= 3.0);
+            }
+            assert!(contrast(p.ink_weak, p.sheet_hover) >= 4.5);
+            // Метки в списке серверов.
+            assert!(contrast(p.ink_weak, p.rule) >= 4.5);
+            assert!(contrast(p.ink, p.rule) >= 4.5);
+            assert!(contrast(p.on_danger, p.danger) >= 4.5);
+            assert!(contrast(p.sheet, p.ink) >= 4.5);
+        }
+    }
 }

@@ -156,11 +156,12 @@ fn download_verified(m: &Manifest) -> Result<PathBuf, String> {
 }
 
 /// Запускает скачанный установщик в режиме тихого обновления.
-pub fn run_update(installer: &PathBuf) -> Result<(), String> {
+/// Возвращает номер процесса установщика.
+pub fn run_update(installer: &PathBuf) -> Result<u32, String> {
     std::process::Command::new(installer)
         .arg("--update")
         .spawn()
-        .map(|_| ())
+        .map(|child| child.id())
         .map_err(|e| format!("не удалось запустить обновление: {e}"))
 }
 
@@ -229,12 +230,12 @@ fn get_once(url: &str) -> Result<(u16, String, Vec<u8>), String> {
         "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: DnsSwitcher/{}\r\nAccept: */*\r\nConnection: close\r\n\r\n",
         crate::install::VERSION
     );
-    tls.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+    tls.write_all(request.as_bytes()).map_err(|e| doh::describe_io(&e))?;
     let mut raw = Vec::new();
     match tls.read_to_end(&mut raw) {
         Ok(_) => {}
         Err(e) if e.kind() == ErrorKind::UnexpectedEof && !raw.is_empty() => {}
-        Err(e) => return Err(format!("загрузка прервалась: {e}")),
+        Err(e) => return Err(format!("загрузка прервалась: {}", doh::describe_io(&e))),
     }
     let split = raw.windows(4).position(|w| w == b"\r\n\r\n").ok_or("неполный ответ сервера")?;
     let head = String::from_utf8_lossy(&raw[..split]).to_string();

@@ -24,10 +24,10 @@ impl Node {
 }
 
 const ARROW_GAP: f32 = 30.0;
-const MIN_NODE: f32 = 110.0;
+const MIN_NODE: f32 = 128.0;
 const PAD: f32 = 12.0;
 
-/// Цепочка узлов слева направо; на узком окне — сверху вниз.
+/// Цепочка узлов слева направо; на узком окне сверху вниз.
 pub(super) fn chain(ui: &mut egui::Ui, p: &Palette, nodes: &[Node]) {
     if nodes.is_empty() {
         return;
@@ -44,8 +44,8 @@ pub(super) fn chain(ui: &mut egui::Ui, p: &Palette, nodes: &[Node]) {
     let laid: Vec<_> = nodes
         .iter()
         .map(|nd| {
-            let t = ui.painter().layout(nd.title.clone(), title_font.clone(), p.text, text_w - 26.0);
-            let d = ui.painter().layout(nd.detail.clone(), small.clone(), p.text_weak, text_w);
+            let t = ui.painter().layout(nd.title.clone(), title_font.clone(), p.ink, text_w - 26.0);
+            let d = ui.painter().layout(nd.detail.clone(), small.clone(), p.ink_weak, text_w);
             (t, d)
         })
         .collect();
@@ -71,12 +71,13 @@ pub(super) fn chain(ui: &mut egui::Ui, p: &Palette, nodes: &[Node]) {
             pos2(rect.left(), rect.top() + i as f32 * (node_h + ARROW_GAP * 0.8))
         };
         let r = Rect::from_min_size(min, Vec2::new(node_w, node_h));
-        let (fill, stroke) = node_colors(p, nd.state);
-        painter.rect(r, CornerRadius::same(8), fill, Stroke::new(1.0, stroke), StrokeKind::Inside);
+        painter.rect_stroke(r, CornerRadius::same(10), Stroke::new(1.0, node_stroke(p, nd.state)), StrokeKind::Inside);
         let icon_c = pos2(r.left() + PAD + 9.0, r.top() + PAD + 10.0);
-        state_icon(painter, p, icon_c, 9.0, nd.state);
-        painter.galley(pos2(r.left() + PAD + 26.0, r.top() + PAD + (20.0 - t.size().y).max(0.0) / 2.0), t.clone(), p.text);
-        painter.galley(pos2(r.left() + PAD, r.top() + PAD + t.size().y.max(20.0) + 4.0), d, p.text_weak);
+        // Состояние изменилось: значок выскакивает заново.
+        let pop = kit::pop(ui.ctx(), ("node", resp.id, i, nd.state as u8), kit::BOUNCE);
+        state_icon(painter, p, icon_c, 9.0 * pop.max(0.2), nd.state);
+        painter.galley(pos2(r.left() + PAD + 26.0, r.top() + PAD + (20.0 - t.size().y).max(0.0) / 2.0), t.clone(), p.ink);
+        painter.galley(pos2(r.left() + PAD, r.top() + PAD + t.size().y.max(20.0) + 4.0), d, p.ink_weak);
 
         if i + 1 < nodes.len() {
             if horizontal {
@@ -90,17 +91,17 @@ pub(super) fn chain(ui: &mut egui::Ui, p: &Palette, nodes: &[Node]) {
     }
 }
 
-fn node_colors(p: &Palette, state: NodeState) -> (Color32, Color32) {
+fn node_stroke(p: &Palette, state: NodeState) -> Color32 {
     match state {
-        NodeState::Ok => (p.surface, p.success_text),
-        NodeState::Warn => (p.surface, p.warn_text),
-        NodeState::Bad => (p.surface, p.danger_text),
-        NodeState::Neutral => (p.surface, p.border_strong),
+        NodeState::Ok => p.good,
+        NodeState::Warn => p.warn,
+        NodeState::Bad => p.danger,
+        NodeState::Neutral => p.rule_strong,
     }
 }
 
 fn arrow(painter: &egui::Painter, p: &Palette, from: egui::Pos2, to: egui::Pos2) {
-    let stroke = Stroke::new(1.6, p.text_weak);
+    let stroke = Stroke::new(1.6, p.ink_weak);
     painter.line_segment([from, to], stroke);
     let dir = (to - from).normalized();
     let side = Vec2::new(-dir.y, dir.x);
@@ -114,26 +115,26 @@ pub(super) fn state_icon(painter: &egui::Painter, p: &Palette, c: egui::Pos2, r:
     let k = r / 9.0;
     match state {
         NodeState::Ok => {
-            painter.circle_filled(c, r, p.success_text);
-            let s = Stroke::new(2.0 * k, p.surface);
+            painter.circle_filled(c, r, p.good);
+            let s = Stroke::new(2.0 * k, p.sheet);
             painter.line_segment([c + Vec2::new(-4.0, 0.5) * k, c + Vec2::new(-1.2, 3.3) * k], s);
             painter.line_segment([c + Vec2::new(-1.2, 3.3) * k, c + Vec2::new(4.5, -3.0) * k], s);
         }
         NodeState::Bad => {
-            painter.circle_filled(c, r, p.danger_text);
-            let s = Stroke::new(2.0 * k, p.surface);
+            painter.circle_filled(c, r, p.danger);
+            let s = Stroke::new(2.0 * k, p.sheet);
             painter.line_segment([c + Vec2::new(-3.5, -3.5) * k, c + Vec2::new(3.5, 3.5) * k], s);
             painter.line_segment([c + Vec2::new(3.5, -3.5) * k, c + Vec2::new(-3.5, 3.5) * k], s);
         }
         NodeState::Warn => {
-            painter.circle_filled(c, r, p.warn_text);
-            let s = Stroke::new(2.0 * k, p.surface);
+            painter.circle_filled(c, r, p.warn);
+            let s = Stroke::new(2.0 * k, p.sheet);
             painter.line_segment([c + Vec2::new(0.0, -4.5) * k, c + Vec2::new(0.0, 1.0) * k], s);
-            painter.circle_filled(c + Vec2::new(0.0, 4.0) * k, 1.2 * k, p.surface);
+            painter.circle_filled(c + Vec2::new(0.0, 4.0) * k, 1.2 * k, p.sheet);
         }
         NodeState::Neutral => {
-            painter.circle_stroke(c, r - 1.0, Stroke::new(1.5, p.border_strong));
-            painter.circle_filled(c, 2.5 * k, p.border_strong);
+            painter.circle_stroke(c, r - 1.0, Stroke::new(1.5, p.rule_strong));
+            painter.circle_filled(c, 2.5 * k, p.rule_strong);
         }
     }
 }
@@ -144,26 +145,28 @@ impl DnsApp {
     pub(super) fn help_view(&mut self, ui: &mut egui::Ui) {
         let p = palette(ui);
         ui.horizontal(|ui| {
-            if ui.button("Назад").clicked() {
+            if kit::plain(ui, "Назад").clicked() {
                 self.view = View::Main;
             }
-            ui.label(RichText::new("Как это работает").family(semibold()).size(20.0));
+            ui.label(RichText::new("Как это работает").family(semibold()).size(21.0));
         });
         ui.add_space(12.0);
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
           centered(ui, 900.0, |ui| {
             let section = |ui: &mut egui::Ui, title: &str, text: &str, nodes: &[Node]| {
-                card(p).inner_margin(Margin::same(18)).show(ui, |ui| {
+                card().show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(RichText::new(title).family(semibold()).size(17.0));
+                    ui.label(RichText::new(title).family(semibold()).size(15.0));
                     ui.add_space(6.0);
-                    ui.add(egui::Label::new(RichText::new(text).color(p.text_weak)).wrap());
+                    ui.add(egui::Label::new(RichText::new(text).color(p.ink_weak)).wrap());
                     if !nodes.is_empty() {
                         ui.add_space(12.0);
                         chain(ui, p, nodes);
                     }
                 });
-                ui.add_space(14.0);
+                ui.add_space(16.0);
+                kit::hairline(ui);
+                ui.add_space(16.0);
             };
 
             section(
@@ -233,9 +236,9 @@ impl DnsApp {
                 ],
             );
 
-            card(p).inner_margin(Margin::same(18)).show(ui, |ui| {
+            card().show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.label(RichText::new("Что значат состояния серверов").family(semibold()).size(17.0));
+                ui.label(RichText::new("Что значат состояния серверов").family(semibold()).size(15.0));
                 ui.add_space(8.0);
                 let rows = [
                     ("работает", "DNS отвечает быстро, сервисы открываются через все прокси.", NodeState::Ok),
@@ -249,16 +252,18 @@ impl DnsApp {
                         let (r, _) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::hover());
                         state_icon(ui.painter(), p, r.center(), 8.0, state);
                         ui.label(RichText::new(word).family(semibold()));
-                        ui.add(egui::Label::new(RichText::new(text).color(p.text_weak)).wrap());
+                        ui.add(egui::Label::new(RichText::new(text).color(p.ink_weak)).wrap());
                     });
                     ui.add_space(4.0);
                 }
             });
-            ui.add_space(14.0);
+            ui.add_space(16.0);
+            kit::hairline(ui);
+            ui.add_space(16.0);
 
-            card(p).inner_margin(Margin::same(18)).show(ui, |ui| {
+            card().show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.label(RichText::new("Частые вопросы").family(semibold()).size(17.0));
+                ui.label(RichText::new("Частые вопросы").family(semibold()).size(15.0));
                 ui.add_space(8.0);
                 let faq = [
                     (
@@ -282,7 +287,7 @@ impl DnsApp {
                 ];
                 for (q, a) in faq {
                     ui.label(RichText::new(q).family(semibold()));
-                    ui.add(egui::Label::new(RichText::new(a).color(p.text_weak)).wrap());
+                    ui.add(egui::Label::new(RichText::new(a).color(p.ink_weak)).wrap());
                     ui.add_space(8.0);
                 }
             });

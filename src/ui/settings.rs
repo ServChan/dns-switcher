@@ -17,37 +17,35 @@ impl DnsApp {
     pub(super) fn settings_view(&mut self, ui: &mut egui::Ui, section: Section) {
         let p = palette(ui);
         ui.horizontal(|ui| {
-            if ui.button("Назад").clicked() {
+            if kit::plain(ui, "Назад").clicked() {
                 self.view = View::Main;
             }
-            ui.label(RichText::new("Настройки").family(semibold()).size(20.0));
+            ui.label(RichText::new("Настройки").family(semibold()).size(21.0));
         });
         ui.add_space(12.0);
         ui.horizontal_top(|ui| {
             // Разделы.
-            card(p).inner_margin(Margin::same(6)).show(ui, |ui| {
-                // Карточка внутри горизонтального ряда: раскладку задаём явно.
-                ui.vertical(|ui| {
-                    ui.set_width(200.0);
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    for (s, title) in SECTIONS {
-                        let on = s == section;
-                        let btn = egui::Button::selectable(on, title).min_size(Vec2::new(200.0, 34.0));
-                        if ui.add(btn).clicked() {
-                            self.view = View::Settings(s);
-                        }
+            ui.vertical(|ui| {
+                ui.set_width(200.0);
+                ui.spacing_mut().item_spacing.y = 2.0;
+                for (s, title) in SECTIONS {
+                    if kit::nav_item(ui, s == section, title).clicked() {
+                        self.view = View::Settings(s);
                     }
-                });
+                }
             });
-            ui.add_space(12.0);
+            ui.add_space(8.0);
+            let top = ui.min_rect().top();
+            let x = ui.cursor().left();
+            ui.painter().vline(x, top..=ui.max_rect().bottom(), Stroke::new(1.0, p.rule));
+            ui.add_space(20.0);
             // Содержимое.
             let width = (ui.available_width()).min(760.0);
             egui::ScrollArea::vertical().auto_shrink([true, false]).show(ui, |ui| {
-                card(p).inner_margin(Margin::same(20)).show(ui, |ui| {
-                  ui.vertical(|ui| {
-                    ui.set_width(width - 40.0);
+                ui.vertical(|ui| {
+                    ui.set_width(width - 12.0);
                     match section {
-                        Section::Appearance => self.settings_appearance(ui, p),
+                        Section::Appearance => self.settings_appearance(ui),
                         Section::Protection => self.settings_protection(ui, p),
                         Section::Checks => self.settings_checks(ui, p),
                         Section::Notifications => self.settings_notifications(ui, p),
@@ -55,19 +53,20 @@ impl DnsApp {
                         Section::Updates => self.settings_updates(ui, p),
                         Section::About => self.settings_about(ui, p),
                     }
-                  });
                 });
             });
         });
     }
 
-    fn settings_appearance(&mut self, ui: &mut egui::Ui, p: &Palette) {
+    fn settings_appearance(&mut self, ui: &mut egui::Ui) {
         heading(ui, "Режим");
         let mut mode = self.config.ui_mode;
-        ui.radio_value(&mut mode, UiMode::Simple, "Простой");
-        hint(ui, p, "Одна понятная карточка: всё ли работает, где проблема и кнопка «Подобрать лучший сервер».");
-        ui.radio_value(&mut mode, UiMode::Advanced, "Подробный");
-        hint(ui, p, "Список всех серверов, ручной выбор, порядок резерва, проверка каждого адреса и прокси.");
+        if kit::choice(ui, mode == UiMode::Simple, "Простой", "Одна понятная карточка: всё ли работает, где проблема и кнопка «Подобрать лучший сервер».") {
+            mode = UiMode::Simple;
+        }
+        if kit::choice(ui, mode == UiMode::Advanced, "Подробный", "Список всех серверов, ручной выбор, порядок резерва, проверка каждого адреса и прокси.") {
+            mode = UiMode::Advanced;
+        }
         if mode != self.config.ui_mode {
             self.config.ui_mode = mode;
             self.save_config();
@@ -77,9 +76,8 @@ impl DnsApp {
         heading(ui, "Тема");
         let mut theme_choice = self.config.theme;
         ui.horizontal(|ui| {
-            ui.radio_value(&mut theme_choice, ThemeChoice::System, "Как в Windows");
-            ui.radio_value(&mut theme_choice, ThemeChoice::Light, "Светлая");
-            ui.radio_value(&mut theme_choice, ThemeChoice::Dark, "Тёмная");
+            let themes = [(ThemeChoice::System, "Как в Windows"), (ThemeChoice::Light, "Светлая"), (ThemeChoice::Dark, "Тёмная")];
+            kit::segments(ui, &mut theme_choice, &themes);
         });
         if theme_choice != self.config.theme {
             self.config.theme = theme_choice;
@@ -92,48 +90,48 @@ impl DnsApp {
         let ctx = ui.ctx().clone();
         let mut f = self.config.failover.clone();
         heading(ui, "Автопереключение");
-        ui.checkbox(&mut f.enabled, "Переключать на резервный сервер, если текущий работает плохо");
+        kit::toggle(ui, "Переключать на резервный сервер, если текущий работает плохо", &mut f.enabled);
         hint(
             ui,
             p,
-            "«Плохо» — не отвечает, отвечает дольше 1,5 с или не открывает ИИ-сервисы две проверки подряд. \
+            "«Плохо» значит: не отвечает, отвечает дольше 1,5 с или не открывает ИИ-сервисы две проверки подряд. \
              Если пропал весь интернет, программа ничего не переключает.",
         );
         ui.add_enabled_ui(f.enabled, |ui| {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
+                ui.set_min_height(32.0);
                 ui.label("Проверять каждые");
-                for (secs, text) in INTERVALS {
-                    if ui.selectable_label(f.interval_secs == secs, text).clicked() {
-                        f.interval_secs = secs;
-                    }
-                }
+                kit::segments(ui, &mut f.interval_secs, &INTERVALS);
             });
             ui.add_space(6.0);
-            ui.checkbox(&mut f.return_to_preferred, "Возвращаться к выбранному серверу, когда он снова заработает");
+            kit::toggle(ui, "Возвращаться к выбранному серверу, когда он снова заработает", &mut f.return_to_preferred);
             ui.add_space(10.0);
             ui.label("Если не подходит ни один сервер для ИИ:");
-            ui.radio_value(&mut f.last_resort, LastResort::Regular, "Переключать на обычные DNS");
-            hint(ui, p, "Интернет работает, ИИ-сервисы в это время не открываются.");
-            ui.radio_value(&mut f.last_resort, LastResort::Dhcp, "Сразу переключать на DNS от роутера");
-            hint(ui, p, "Если не отвечают и обычные DNS, всегда включается DNS от роутера, чтобы интернет не пропал.");
+            if kit::choice(ui, f.last_resort == LastResort::Regular, "Переключать на обычные DNS", "Интернет работает, ИИ-сервисы в это время не открываются.") {
+                f.last_resort = LastResort::Regular;
+            }
+            if kit::choice(ui, f.last_resort == LastResort::Dhcp, "Сразу переключать на DNS от роутера", "Если не отвечают и обычные DNS, всегда включается DNS от роутера, чтобы интернет не пропал.") {
+                f.last_resort = LastResort::Dhcp;
+            }
         });
 
         ui.add_space(16.0);
         heading(ui, "Страховка");
-        ui.checkbox(&mut f.safety_net, "Дописывать Cloudflare и Google последними адресами");
+        kit::toggle(ui, "Дописывать запасные адреса после выбранного сервера", &mut f.safety_net);
         hint(
             ui,
             p,
-            "Если выбранный сервер не ответит, Windows сама перейдёт на 1.1.1.1 и 8.8.8.8: интернет не пропадёт, \
-             даже когда программа закрыта. Действует со следующего применения сервера.",
+            "Если выбранный сервер не ответит, Windows сама перейдёт на запасные адреса, даже когда программа \
+             закрыта: сначала на другой рабочий сервер для ИИ (обход не прервётся), затем на 1.1.1.1 и 8.8.8.8 \
+             (интернет не пропадёт). Действует со следующего применения сервера.",
         );
 
         ui.add_space(16.0);
         heading(ui, "Работа в фоне");
         let mut background = f.background;
         ui.add_enabled_ui(f.enabled && !self.task_busy, |ui| {
-            ui.checkbox(&mut background, "Следить, даже когда окно закрыто");
+            kit::toggle(ui, "Следить, даже когда окно закрыто", &mut background);
         });
         hint(
             ui,
@@ -150,10 +148,10 @@ impl DnsApp {
 
         ui.add_space(16.0);
         heading(ui, "Очередь резервных серверов");
-        hint(
+        note(
             ui,
             p,
-            "Резерв выбирается по проверке: сначала полностью рабочие, среди равных — более надёжные по истории \
+            "Резерв выбирается по проверке: сначала полностью рабочие, среди равных более надёжные по истории \
              последних проверок, затем стоящие выше в списке. Порядок меняется в подробном режиме кнопками \
              «Выше» и «Ниже».",
         );
@@ -177,7 +175,7 @@ impl DnsApp {
 
     fn settings_checks(&mut self, ui: &mut egui::Ui, p: &Palette) {
         heading(ui, "Шифрование");
-        if ui.checkbox(&mut self.config.use_doh, "Шифровать DNS-запросы (DoH)").changed() {
+        if kit::toggle(ui, "Шифровать DNS-запросы (DoH)", &mut self.config.use_doh).changed() {
             self.save_config();
         }
         hint(
@@ -189,7 +187,7 @@ impl DnsApp {
 
         ui.add_space(16.0);
         heading(ui, "Какие сервисы проверять");
-        hint(
+        note(
             ui,
             p,
             "Через каждый сервер для ИИ программа проверяет, открываются ли эти сервисы: устанавливает с ними \
@@ -201,9 +199,9 @@ impl DnsApp {
         let mut changed = false;
         for (i, probe) in self.config.probes.iter_mut().enumerate() {
             ui.horizontal(|ui| {
-                changed |= ui.checkbox(&mut probe.enabled, &probe.name).changed();
-                ui.label(RichText::new(&probe.domain).monospace().color(p.text_weak));
-                if !defaults.contains(&probe.name) && ui.small_button("Убрать").clicked() {
+                changed |= kit::toggle(ui, &probe.name, &mut probe.enabled).changed();
+                ui.label(RichText::new(&probe.domain).monospace().color(p.ink_weak));
+                if !defaults.contains(&probe.name) && kit::plain(ui, "Убрать").clicked() {
                     remove = Some(i);
                 }
             });
@@ -214,13 +212,13 @@ impl DnsApp {
         }
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.new_probe.0).hint_text("Название").desired_width(140.0));
-            ui.add(egui::TextEdit::singleline(&mut self.new_probe.1).hint_text("адрес, например claude.ai").desired_width(220.0));
+            kit::input(ui, "probe-name", 140.0, &mut self.new_probe.0, "Название");
+            kit::input(ui, "probe-domain", 220.0, &mut self.new_probe.1, "адрес, например claude.ai");
             let name = self.new_probe.0.trim().to_string();
             let domain = crate::config::probe_domain(&self.new_probe.1);
             let valid = !name.is_empty() && domain.is_some();
             let domain = domain.unwrap_or_default();
-            if ui.add_enabled(valid, egui::Button::new("Добавить")).clicked() {
+            if kit::Button::new("Добавить", Tone::Plain).enabled(valid).show(ui).clicked() {
                 self.config.probes.push(crate::config::Probe { name, domain, enabled: true });
                 self.new_probe = Default::default();
                 changed = true;
@@ -233,11 +231,11 @@ impl DnsApp {
         if !self.config.ipv6_disabled.is_empty() {
             ui.add_space(16.0);
             heading(ui, "IPv6");
-            hint(ui, p, "Программа выключила IPv6 на этих подключениях, чтобы сервисы не открывались мимо прокси.");
+            note(ui, p, "Программа выключила IPv6 на этих подключениях, чтобы сервисы не открывались мимо прокси.");
             for name in self.config.ipv6_disabled.clone() {
                 ui.horizontal(|ui| {
                     ui.label(&name);
-                    if ui.button("Включить IPv6 обратно").clicked() {
+                    if kit::plain(ui, "Включить IPv6 обратно").clicked() {
                         self.set_ipv6(&name, true);
                     }
                 });
@@ -248,9 +246,8 @@ impl DnsApp {
     fn settings_notifications(&mut self, ui: &mut egui::Ui, p: &Palette) {
         heading(ui, "Уведомления Windows");
         let mut changed = false;
-        changed |= ui.checkbox(&mut self.config.notify.switches, "О переключении на резервный сервер и возврате").changed();
-        changed |= ui
-            .checkbox(&mut self.config.notify.problems, "О проблемах, которые нужно исправить: браузер, IPv6")
+        changed |= kit::toggle(ui, "О переключении на резервный сервер и возврате", &mut self.config.notify.switches).changed();
+        changed |= kit::toggle(ui, "О проблемах, которые нужно исправить: браузер, IPv6", &mut self.config.notify.problems)
             .changed();
         if changed {
             self.save_config();
@@ -266,7 +263,7 @@ impl DnsApp {
     fn settings_browsers(&mut self, ui: &mut egui::Ui, p: &Palette) {
         let ctx = ui.ctx().clone();
         heading(ui, "Браузеры и их DNS");
-        hint(
+        note(
             ui,
             p,
             "Браузер со своим защищённым DNS не спрашивает Windows, поэтому обход в нём не работает. Исправление \
@@ -275,7 +272,7 @@ impl DnsApp {
         );
         ui.add_space(8.0);
         if self.browsers.is_empty() {
-            ui.label(RichText::new("Браузеры не найдены или ещё проверяются.").color(p.text_weak));
+            ui.label(RichText::new("Браузеры не найдены или ещё проверяются.").color(p.ink_weak));
         }
         for b in self.browsers.clone() {
             ui.horizontal(|ui| {
@@ -288,7 +285,7 @@ impl DnsApp {
                     browsers::DnsMode::Automatic => "«автоматически»: может сам перейти на Cloudflare или Google".into(),
                     browsers::DnsMode::System => "DNS Windows".into(),
                 };
-                ui.label(RichText::new(text).color(p.text_weak));
+                ui.label(RichText::new(text).color(p.ink_weak));
             });
             if b.bypasses_windows() {
                 ui.horizontal(|ui| {
@@ -296,11 +293,11 @@ impl DnsApp {
                     if b.can_fix() {
                         let label = if b.running { format!("Закрыть {} и исправить", b.name) } else { format!("Исправить {}", b.name) };
                         let busy = self.fixing_browsers.contains(b.name);
-                        if ui.add_enabled(!busy, egui::Button::new(label)).clicked() {
+                        if kit::Button::new(&label, Tone::Plain).enabled(!busy).show(ui).clicked() {
                             self.fix_browser(&ctx, &b);
                         }
                         if let Some((ok, note)) = self.browser_note.get(b.name) {
-                            ui.label(RichText::new(note).small().color(if *ok { p.text_weak } else { p.danger_text }));
+                            ui.label(RichText::new(note).small().color(if *ok { p.ink_weak } else { p.danger }));
                         }
                     } else {
                         ui.add(
@@ -310,7 +307,7 @@ impl DnsApp {
                                     b.settings_url
                                 ))
                                 .small()
-                                .color(p.text_weak),
+                                .color(p.ink_weak),
                             )
                             .wrap(),
                         );
@@ -320,7 +317,7 @@ impl DnsApp {
             ui.add_space(4.0);
         }
         ui.add_space(8.0);
-        if ui.button("Проверить браузеры ещё раз").clicked() {
+        if kit::plain(ui, "Проверить браузеры ещё раз").clicked() {
             self.start_browser_scan(&ctx);
         }
     }
@@ -331,7 +328,7 @@ impl DnsApp {
         ui.label(format!("Установлена версия {}.", install::VERSION));
         if !update::configured() {
             ui.add_space(6.0);
-            hint(
+            note(
                 ui,
                 p,
                 "Обновления включатся с первой подписанной версией из репозитория выпусков. Эта сборка их ещё не \
@@ -339,19 +336,19 @@ impl DnsApp {
             );
             return;
         }
-        if let Some(m) = self.updates.available.clone() {
+        if let Some(m) = self.updates.available.clone().filter(|m| crate::update::newer(&m.version, crate::install::VERSION)) {
             ui.add_space(6.0);
-            ui.label(RichText::new(format!("Доступна версия {}", m.version)).family(semibold()).color(p.accent_text));
+            ui.label(RichText::new(format!("Доступна версия {}", m.version)).family(semibold()).color(p.ink));
             if !m.notes.is_empty() {
-                ui.add(egui::Label::new(RichText::new(&m.notes).color(p.text_weak)).wrap());
+                ui.add(egui::Label::new(RichText::new(&m.notes).color(p.ink_weak)).wrap());
             }
-            if accent_button(ui, p, "Обновить", self.update_busy.is_some(), self.update_busy.is_none(), false).clicked() {
+            if accent_button(ui, "Обновить", self.update_busy.is_some(), self.update_busy.is_none(), false).clicked() {
                 self.download_update(&ctx, m);
             }
         }
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            if ui.add_enabled(self.update_busy.is_none(), egui::Button::new("Проверить сейчас")).clicked() {
+            if kit::Button::new("Проверить сейчас", Tone::Plain).enabled(self.update_busy.is_none()).show(ui).clicked() {
                 self.check_update(&ctx);
             }
             if let Some(b) = &self.update_busy {
@@ -363,9 +360,9 @@ impl DnsApp {
         ui.add_space(16.0);
         heading(ui, "Автоматически");
         let mut changed = false;
-        changed |= ui.checkbox(&mut self.config.updates.app, "Раз в день проверять новую версию программы").changed();
+        changed |= kit::toggle(ui, "Раз в день проверять новую версию программы", &mut self.config.updates.app).changed();
         hint(ui, p, "Устанавливается только по вашей кнопке «Обновить». Файл проверяется цифровой подписью.");
-        changed |= ui.checkbox(&mut self.config.updates.server_list, "Раз в день обновлять адреса серверов").changed();
+        changed |= kit::toggle(ui, "Раз в день обновлять адреса серверов", &mut self.config.updates.server_list).changed();
         hint(
             ui,
             p,
@@ -376,8 +373,8 @@ impl DnsApp {
             self.save_config();
         }
         ui.add_space(6.0);
-        ui.label(RichText::new(format!("Версия списка серверов: {}", self.config.remote_list_version)).color(p.text_weak));
-        if ui.add_enabled(self.update_busy.is_none(), egui::Button::new("Обновить список сейчас")).clicked() {
+        ui.label(RichText::new(format!("Версия списка серверов: {}", self.config.remote_list_version)).color(p.ink_weak));
+        if kit::Button::new("Обновить список сейчас", Tone::Plain).enabled(self.update_busy.is_none()).show(ui).clicked() {
             self.update_list_now(&ctx);
         }
     }
@@ -387,25 +384,25 @@ impl DnsApp {
         ui.label(format!("Версия {}", install::VERSION));
         ui.add_space(10.0);
         let data = crate::config::data_dir();
-        ui.label(RichText::new("Настройки, список серверов и журнал:").color(p.text_weak));
+        ui.label(RichText::new("Настройки, список серверов и журнал:").color(p.ink_weak));
         ui.horizontal(|ui| {
             ui.label(RichText::new(data.to_string_lossy()).monospace());
-            if ui.small_button("Открыть папку").clicked() {
+            if kit::plain(ui, "Открыть папку").clicked() {
                 crate::sys::open_in_explorer(&data);
             }
         });
         if let Some(dir) = install::installed_dir() {
             ui.add_space(6.0);
-            ui.label(RichText::new("Программа установлена в:").color(p.text_weak));
+            ui.label(RichText::new("Программа установлена в:").color(p.ink_weak));
             ui.label(RichText::new(dir.to_string_lossy()).monospace());
         }
         ui.add_space(10.0);
         ui.horizontal(|ui| {
-            if ui.link(RichText::new("Как это работает").color(p.accent_text)).clicked() {
+            if kit::link(ui, "Как это работает", 14.0).clicked() {
                 self.view = View::Help;
             }
-            ui.label(RichText::new("·").color(p.text_weak));
-            if ui.link(RichText::new("Выпуски и список изменений").color(p.accent_text)).clicked() {
+            ui.label(RichText::new("·").color(p.ink_weak));
+            if kit::link(ui, "Выпуски и список изменений", 14.0).clicked() {
                 crate::sys::open_in_explorer(format!("https://github.com/{}/releases", update::REPO));
             }
         });
@@ -413,15 +410,21 @@ impl DnsApp {
 }
 
 fn heading(ui: &mut egui::Ui, text: &str) {
-    ui.label(RichText::new(text).family(semibold()).size(16.0));
+    ui.label(RichText::new(text).family(semibold()).size(15.0));
     ui.add_space(4.0);
 }
 
+/// Пояснение под переключателем: по левому краю его подписи.
 fn hint(ui: &mut egui::Ui, p: &Palette, text: &str) {
     ui.horizontal(|ui| {
-        ui.add_space(26.0);
-        ui.add(egui::Label::new(RichText::new(text).small().color(p.text_weak)).wrap());
+        ui.add_space(42.0);
+        ui.add(egui::Label::new(RichText::new(text).small().color(p.ink_weak)).wrap());
     });
+}
+
+/// Пояснение ко всему разделу.
+fn note(ui: &mut egui::Ui, p: &Palette, text: &str) {
+    ui.add(egui::Label::new(RichText::new(text).small().color(p.ink_weak)).wrap());
 }
 
 pub(super) fn apply_theme(ctx: &egui::Context, t: ThemeChoice) {

@@ -423,20 +423,59 @@ pub fn silent_update() -> Result<(), String> {
     for w in &warnings {
         state::log(&format!("Обновление: {w}"));
     }
+    // Кнопка «Обновить до …» не должна остаться после обновления до этой версии.
+    let mut us = crate::update::UpdateState::load();
+    if us.available.as_ref().is_some_and(|m| !crate::update::newer(&m.version, VERSION)) {
+        us.available = None;
+        us.save();
+    }
     if result.is_err() && opts.background {
         let _ = tasks::run(tasks::WATCHDOG);
     }
-    let launched = launch(&opts.dir);
+    let launched = launch_after_update(&opts.dir);
     result.and(launched)
+}
+
+/// После тихого обновления: запускает окно и проверяет, что оно не закрылось сразу.
+/// Изредка окно после обновления не появлялось без всяких следов; теперь установщик
+/// это видит, пишет в журнал и запускает окно ещё раз.
+fn launch_after_update(dir: &Path) -> Result<(), String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
+    for attempt in 0..2 {
+        unsafe { AllowSetForegroundWindow(u32::MAX) };
+        let mut child = Command::new(dir.join(EXE_NAME))
+            .arg("--after-update")
+            .creation_flags(DETACHED_PROCESS)
+            .spawn()
+            .map_err(|e| format!("Не удалось запустить программу: {e}"))?;
+        unsafe { AllowSetForegroundWindow(child.id()) };
+        let start = std::time::Instant::now();
+        let mut exited = None;
+        while start.elapsed() < std::time::Duration::from_secs(8) {
+            if let Ok(Some(status)) = child.try_wait() {
+                exited = Some(status);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        let Some(status) = exited else { return Ok(()) };
+        state::log(&format!(
+            "Окно программы закрылось сразу после запуска (код {}){}.",
+            status.code().map_or("—".to_string(), |c| c.to_string()),
+            if attempt == 0 { ", запускаю снова" } else { "" }
+        ));
+    }
+    Ok(())
 }
 
 /// Запускает установленную программу отдельно от установщика.
 pub fn launch(dir: &Path) -> Result<(), String> {
     // Разрешаем новому окну выйти на передний план: иначе Windows откроет его позади.
     unsafe { windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(u32::MAX) };
-    Command::new(dir.join(EXE_NAME))
+    let child = Command::new(dir.join(EXE_NAME))
         .creation_flags(DETACHED_PROCESS)
         .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("Не удалось запустить программу: {e}"))
+        .map_err(|e| format!("Не удалось запустить программу: {e}"))?;
+    unsafe { windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(child.id()) };
+    Ok(())
 }

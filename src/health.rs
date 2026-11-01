@@ -432,6 +432,10 @@ pub struct EndToEnd {
     pub via_server: Option<bool>,
     /// Windows отдаёт настоящие адреса сервиса: обход не действует.
     pub real: Option<bool>,
+    /// Windows отдаёт адрес не из ответа этого сервера (например, запасного).
+    pub other_source: bool,
+    /// Этот чужой адрес — прокси, который не открывается.
+    pub proxy_dead: bool,
 }
 
 impl EndToEnd {
@@ -452,15 +456,25 @@ pub fn end_to_end(server: &DnsServer, health: &Health) -> Option<EndToEnd> {
         .collect();
     server_ips.extend(server.ipv4.iter().filter_map(|s| s.parse::<Ipv4Addr>().ok()));
     let system = system_resolve(&service.domain);
-    let (via_server, real) = match &system {
-        Ok(ips) if !ips.is_empty() => {
+    let (mut via_server, mut real_seen, mut other_source, mut proxy_dead) = (None, None, false, false);
+    if let Ok(ips) = &system {
+        if let Some(&first) = ips.first() {
             let matched = ips.iter().any(|a| server_ips.contains(a));
             let real = reference(&service.domain, QTYPE_A).map(|r| ips.iter().any(|a| r.contains(&IpAddr::V4(*a))));
-            (e2e_verdict(matched, real), real)
+            via_server = e2e_verdict(matched, real);
+            real_seen = real;
+            // Адрес не этого сервера и не настоящий: Windows ушла на запасной сервер
+            // для ИИ. Это нормально, если его прокси открывается.
+            if !matched && real == Some(false) {
+                other_source = true;
+                if retry_once(|| tls_probe(first, &service.domain)).is_err() {
+                    proxy_dead = true;
+                    via_server = Some(false);
+                }
+            }
         }
-        _ => (None, None),
-    };
-    Some(EndToEnd { domain: service.domain.clone(), system, via_server, real })
+    }
+    Some(EndToEnd { domain: service.domain.clone(), system, via_server, real: real_seen, other_source, proxy_dead })
 }
 
 /// `matched`: Windows отдала адрес из ответа сервера; `real`: адрес настоящий.
