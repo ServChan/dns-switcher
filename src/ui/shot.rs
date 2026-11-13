@@ -98,7 +98,7 @@ fn fake_app(ctx: &Context) -> DnsApp {
     };
     app.config.ui_mode = UiMode::Advanced;
     app.config.theme = ThemeChoice::System;
-    let good = |ms| health(&[("37.230.192.51", Ok(ms)), ("159.194.200.33", Ok(ms + 9))], vec![service("ChatGPT", "chatgpt.com", &[Ok(120), Ok(140)]), service("Claude", "claude.ai", &[Ok(130)])]);
+    let good = |ms| health(&[("217.144.190.216", Ok(ms)), ("109.120.187.249", Ok(ms + 9))], vec![service("ChatGPT", "chatgpt.com", &[Ok(120), Ok(140)]), service("Claude", "claude.ai", &[Ok(130)])]);
     let names: Vec<String> = app.config.servers.iter().map(|s| s.name.clone()).collect();
     for (i, name) in names.iter().enumerate() {
         let view = match i {
@@ -342,9 +342,52 @@ fn scenes(out: &Path, theme: Theme, ppp: f32, suffix: &str) {
     shot(&mut r, "help");
 }
 
+/// Кадры для страницы проекта на сайте: тёмная тема, без тестовой кнопки обновления,
+/// все серверы в рабочем состоянии. Поломки из сценариев выше приписали бы настоящим
+/// сервисам то, чего с ними нет.
+fn site(out: &Path) {
+    let file = |scene: &str| out.join(format!("{scene}.png"));
+    let rig = || {
+        let mut r = Rig::new(SIZE, 1.0, Theme::Dark);
+        let servers = r.app.config.servers.clone();
+        for (i, s) in servers.iter().enumerate() {
+            let ip = s.ipv4.first().cloned().unwrap_or_default();
+            let ms = 24 + (i as u32 * 17) % 90;
+            let services = if s.ai_bypass {
+                vec![service("ChatGPT", "chatgpt.com", &[Ok(ms + 70)]), service("Claude", "claude.ai", &[Ok(ms + 85)])]
+            } else {
+                Vec::new()
+            };
+            r.app.health.insert(s.name.clone(), health(&[(ip.as_str(), Ok(ms))], services));
+        }
+        r.app.log_tail = vec!["13.11 14:02:11  Применён MagicDNS на Ethernet".into()];
+        r
+    };
+    let shot = |r: &mut Rig, scene: &str| {
+        r.run(1.0);
+        r.frames.shot(&file(scene));
+    };
+    let mut r = rig();
+    r.app.config.ui_mode = UiMode::Simple;
+    shot(&mut r, "simple");
+    let mut r = rig();
+    shot(&mut r, "servers");
+    for (section, scene) in [(Section::Protection, "failover"), (Section::Checks, "checks"), (Section::Browsers, "browsers")] {
+        let mut r = rig();
+        r.app.view = View::Settings(section);
+        browsers_fake(&mut r.app);
+        shot(&mut r, scene);
+    }
+}
+
+/// `масштаб` = `site` рисует только кадры для сайта.
 pub fn run(dir: &str, scale: Option<&str>) {
     let out = Path::new(dir);
     let _ = std::fs::create_dir_all(out);
+    if scale == Some("site") {
+        site(out);
+        return;
+    }
     scenes(out, Theme::Light, 1.0, "");
     scenes(out, Theme::Dark, 1.0, "");
     if let Some(ppp) = scale.and_then(|s| s.parse::<f32>().ok()) {

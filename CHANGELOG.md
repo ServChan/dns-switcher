@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.4
+
+Русский: спокойное оформление без крупных заголовков и сплошных заливок; проверенный список серверов: новые адреса MagicDNS, GeoHide EU и Comss, добавлены Pereval, Dagami DNS, Zapret DNS, malw.link, WLRus, GeoHide RU, Quad9, Яндекс DNS и OpenDNS, убраны закрытые Xbox-DNS и GeoHide US; новый список применяется сам при первом запуске; если у сервера отказал зашифрованный DNS, а обычный работает, программа пишет «только без шифрования»; серверы проверяются по три одновременно.
+
+English: a calmer look without oversized headings and solid fills; a re-checked server list: new addresses for MagicDNS, GeoHide EU and Comss, added Pereval, Dagami DNS, Zapret DNS, malw.link, WLRus, GeoHide RU, Quad9, Yandex DNS and OpenDNS, removed the closed Xbox-DNS and GeoHide US; the new list applies itself on first start; when a server's encrypted DNS fails but plain DNS works, the app says "unencrypted only"; servers are checked three at a time.
+
+## 1.0.3
+
+Русский: новое оформление программы и установщика.
+
+English: a new look for the app and the installer.
+
 ## 1.0.2
 
 Русский: исправления после второго аудита.
