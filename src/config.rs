@@ -714,12 +714,11 @@ mod tests {
     }
 
     #[test]
-    fn untouched_v2_list_drops_geohide_ru() {
+    fn untouched_v2_list_becomes_new_defaults() {
         let servers = DEFAULTS_V2.iter().map(|(name, ips)| server(name, ips, &[], "", true, "")).collect();
         let mut cfg = Config { servers, defaults_version: 2, ..Config::default() };
         assert!(cfg.migrate());
-        assert!(cfg.find("GeoHide RU").is_none());
-        assert_eq!(cfg.servers.len(), default_servers().len());
+        assert_eq!(cfg.servers, default_servers());
     }
 
     #[test]
@@ -739,7 +738,7 @@ mod tests {
 
         let mut list = embedded_list();
         list.version += 1;
-        list.servers.retain(|s| s.name != "Xbox-DNS" && s.name != "GeoHide US");
+        list.servers.retain(|s| s.name != "WLRus" && s.name != "malw.link");
         let eu = list.servers.iter_mut().find(|s| s.name == "GeoHide EU").unwrap();
         eu.ipv4 = vec!["5.175.161.3".into()];
         let comss = list.servers.iter_mut().find(|s| s.name == "Comss DNS").unwrap();
@@ -747,11 +746,11 @@ mod tests {
         list.servers.push(server("Свежий", &["10.1.1.1"], &[], "", true, ""));
         list.servers.push(server("Новый", &["10.2.2.2"], &[], "", true, ""));
 
-        let changes = cfg.apply_server_list(&list, &["GeoHide US".to_string()]);
+        let changes = cfg.apply_server_list(&list, &["malw.link".to_string()]);
         assert_eq!(cfg.find("GeoHide EU").unwrap().ipv4, ["5.175.161.3"]);
         assert_ne!(cfg.find("Comss DNS").unwrap().ipv4, ["9.9.9.9"], "изменённый вручную не трогаем");
-        assert!(cfg.find("Xbox-DNS").is_none(), "убранный из списка удаляется");
-        assert!(cfg.find("GeoHide US").is_some(), "выбранный сервер не удаляем");
+        assert!(cfg.find("WLRus").is_none(), "убранный из списка удаляется");
+        assert!(cfg.find("malw.link").is_some(), "выбранный сервер не удаляем");
         assert!(cfg.find("Новый").is_none(), "удалённый пользователем не возвращаем");
         assert!(cfg.find("Мой DNS").is_some());
         let fresh = cfg.servers.iter().position(|s| s.name == "Свежий").unwrap();
@@ -795,7 +794,7 @@ mod tests {
         let mut disk = Config::default();
         let mut list = embedded_list();
         list.version += 1;
-        list.servers.retain(|s| s.name != "Xbox-DNS");
+        list.servers.retain(|s| s.name != "WLRus");
         list.servers.iter_mut().find(|s| s.name == "GeoHide EU").unwrap().ipv4 = vec!["5.175.161.3".into()];
         list.servers.push(server("Свежий", &["10.1.1.1"], &[], "", true, ""));
         disk.apply_server_list(&list, &[]);
@@ -803,7 +802,7 @@ mod tests {
         window.merge_remote_list(&disk);
         assert!(window.find("Мой DNS").is_some(), "правка окна сохраняется");
         assert!(window.find("Comss DNS").is_none(), "удалённый в окне не возвращается");
-        assert!(window.find("Xbox-DNS").is_none(), "убранный списком убирается");
+        assert!(window.find("WLRus").is_none(), "убранный списком убирается");
         assert!(window.find("Свежий").is_some(), "добавленный списком появляется");
         assert_eq!(window.find("GeoHide EU").unwrap().ipv4, ["5.175.161.3"]);
         assert_eq!(window.remote_list_version, list.version);
@@ -816,7 +815,8 @@ mod tests {
         let mut cfg = Config { servers: list, defaults_version: 0, ..Config::default() };
         assert!(cfg.migrate());
         let names: Vec<_> = cfg.servers.iter().map(|s| s.name.as_str()).collect();
-        assert_eq!(&names[..3], ["GeoHide EU", "GeoHide US", "GeoHide RU"]);
+        // GeoHide US закрыт: из пулов добавляется только EU.
+        assert_eq!(&names[..2], ["GeoHide EU", "GeoHide RU"]);
         assert!(names.contains(&"Мой DNS"));
         assert!(!names.contains(&"GeoHide DNS"));
     }

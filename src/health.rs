@@ -136,6 +136,9 @@ pub struct Health {
     pub method: Method,
     pub ips: Vec<IpHealth>,
     pub services: Vec<ServiceHealth>,
+    /// По DoH не ответил ни один адрес, а обычный DNS (порт 53) отвечает: так быстро.
+    /// Сервер жив, но с шифрованием сейчас не работает.
+    pub plain_ms: Option<u32>,
 }
 
 impl Health {
@@ -160,6 +163,9 @@ impl Health {
     pub fn problem(&self) -> Option<String> {
         match self.grade() {
             Grade::Good => None,
+            Grade::Dead if self.plain_ms.is_some() => Some(
+                "не отвечает по зашифрованному DNS (DoH), а без шифрования работает".to_string(),
+            ),
             Grade::Dead => Some(format!(
                 "не отвечает: {}",
                 self.ips.iter().find_map(|h| h.result.as_ref().err()).map(String::as_str).unwrap_or("нет ответа")
@@ -258,6 +264,13 @@ pub fn check(server: &DnsServer, use_doh: bool, probes: &[Probe], depth: Depth) 
         .collect();
     working.sort();
     let dns_ips: Vec<IpAddr> = working.into_iter().map(|(_, ip)| ip).collect();
+    // DoH молчит на всех адресах: жив ли сервер без шифрования? У таких серверов
+    // шифрованная часть падает отдельно от обычной, и «не отвечает» вводило бы в заблуждение.
+    let plain_ms = if method == Method::Doh && dns_ips.is_empty() && !server.doh_only {
+        plain_answer(&probe_ips(server))
+    } else {
+        None
+    };
     // Сервисы по очереди: так в каждый момент открыто не больше нескольких соединений.
     let services = match (server.ai_bypass, dns_ips.is_empty()) {
         (true, false) => probes
@@ -267,7 +280,17 @@ pub fn check(server: &DnsServer, use_doh: bool, probes: &[Probe], depth: Depth) 
             .collect(),
         _ => Vec::new(),
     };
-    Health { method, ips, services }
+    Health { method, ips, services, plain_ms }
+}
+
+/// Самый быстрый ответ обычного DNS среди адресов, или None, если не ответил никто.
+fn plain_answer(ips: &[String]) -> Option<u32> {
+    let handles: Vec<_> = ips
+        .iter()
+        .filter_map(|ip| ip.parse::<IpAddr>().ok())
+        .map(|addr| std::thread::spawn(move || resolve(addr, Method::Udp, "", PROBE_NAME).ok().map(|(ms, _)| ms)))
+        .collect();
+    handles.into_iter().filter_map(|h| h.join().ok().flatten()).min()
 }
 
 fn check_service(
@@ -736,7 +759,7 @@ mod tests {
 
     fn health(dns_ms: Option<u32>, services: Vec<ServiceHealth>) -> Health {
         let result = dns_ms.ok_or_else(|| "нет ответа".to_string());
-        Health { method: Method::Udp, ips: vec![IpHealth { ip: "1.1.1.1".into(), result }], services }
+        Health { method: Method::Udp, ips: vec![IpHealth { ip: "1.1.1.1".into(), result }], services, plain_ms: None }
     }
 
     #[test]
@@ -818,6 +841,16 @@ mod tests {
                 .collect();
             println!("{ip} {domain:<18} {line}");
         }
+    }
+
+    /// Адреса GeoHide EU, у которых в ноябре 2026 отказывал DoH при живом порте 53.
+    #[test]
+    #[ignore]
+    fn live_plain_fallback() {
+        let mut server = default_servers().into_iter().find(|s| s.name == "GeoHide EU").unwrap();
+        server.ipv4 = vec!["143.20.64.192".into(), "31.25.239.132".into()];
+        let h = check(&server, true, &crate::config::default_probes(), Depth::Quick);
+        println!("{:?} plain_ms={:?}: {}", h.grade(), h.plain_ms, h.problem().unwrap_or_else(|| "работает".into()));
     }
 
     /// Обращается к настоящим серверам: `cargo test -- --ignored --nocapture`.

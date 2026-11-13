@@ -894,7 +894,7 @@ impl DnsApp {
             if active != pref {
                 (format!("«{pref}» не отвечал, сейчас работает резервный «{active}»"), p.warn)
             } else {
-                (format!("следит за «{active}», проверка каждые {every}"), p.good)
+                (format!("следит за «{active}», проверка каждые {every}"), p.ink_weak)
             }
         } else {
             ("включится после «Применить»".to_string(), p.ink_weak)
@@ -1078,9 +1078,11 @@ impl DnsApp {
             lit,
             hover,
             alpha: 1.0,
+            alert: 0.0,
+            bare: false,
         });
         if resp.has_focus() {
-            kit::focus_ring(ui, rect, 8.0, kit::mix(p.ink, p.sheet, lit));
+            kit::focus_ring(ui, rect, 8.0, p.ink);
         }
 
         let mut action = None;
@@ -1151,9 +1153,6 @@ impl DnsApp {
                     } else if server.has_doh() {
                         badge(ui, p.rule, p.ink_weak, "есть DoH");
                     }
-                    if in_use {
-                        badge(ui, p.rule, p.ink, "используется");
-                    }
                 });
                 if !server.note.is_empty() {
                     ui.add_space(10.0);
@@ -1165,7 +1164,7 @@ impl DnsApp {
                         ui.horizontal_wrapped(|ui| {
                             for s in &h.services {
                                 let (state, fill, color) = if s.fully() {
-                                    ("открывается", p.rule, p.good)
+                                    ("открывается", p.rule, p.ink_weak)
                                 } else if s.works() {
                                     ("с перебоями", p.rule, p.warn)
                                 } else {
@@ -1297,7 +1296,7 @@ impl DnsApp {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&ip.ip).monospace());
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| match &ip.result {
-                            Ok(ms) => ui.label(RichText::new(format!("работает, {ms} мс")).color(p.good)),
+                            Ok(ms) => ui.label(RichText::new(format!("{ms} мс")).color(p.ink_weak)),
                             Err(_) => ui.label(RichText::new("не отвечает").color(p.danger)),
                         });
                     });
@@ -1306,6 +1305,19 @@ impl DnsApp {
                     }
                 }
                 ui.label(RichText::new(format!("Проверка: {how}.")).small().color(p.ink_weak));
+                if let Some(ms) = h.plain_ms {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(format!(
+                                "Зашифрованный DNS у этого сервера сейчас не отвечает, а обычный отвечает за {ms} мс. \
+                                 Выключите «Шифровать запросы (DoH)», и он заработает без шифрования."
+                            ))
+                            .small()
+                            .color(p.warn),
+                        )
+                        .wrap(),
+                    );
+                }
                 if h.best_ms().is_some_and(|ms| ms > health::SLOW_MS) {
                     ui.add(
                         egui::Label::new(
@@ -1331,7 +1343,7 @@ impl DnsApp {
                             (format!("не открывается: {}", s.first_error().unwrap_or("нет ответа")), p.danger)
                         } else if s.fully() {
                             let ms = s.best_ms().map(health::seconds).unwrap_or_default();
-                            (format!("открывается, {ms}"), p.good)
+                            (format!("открывается, {ms}"), p.ink_weak)
                         } else {
                             (format!("работает {} из {total} прокси", s.ok_count()), p.warn)
                         };
@@ -1356,7 +1368,7 @@ impl DnsApp {
             return;
         }
         let (color, title) = match status.kind {
-            StatusKind::Success => (p.good, "Готово"),
+            StatusKind::Success => (p.ink, "Готово"),
             StatusKind::Warning => (p.warn, "Внимание"),
             StatusKind::Error => (p.danger, "Не получилось"),
         };
@@ -1783,13 +1795,7 @@ impl DnsApp {
         let ctx = ui.ctx().clone();
         ui.horizontal(|ui| {
             ui.set_min_height(40.0);
-            // Простой режим отдаёт крупный заголовок итогу, остальные экраны живут на обычных.
-            let name = RichText::new(install::APP_NAME);
-            if self.view == View::Main && self.config.ui_mode == UiMode::Advanced {
-                ui.label(name.family(theme::display()).size(30.0).extra_letter_spacing(-0.15));
-            } else {
-                ui.label(name.family(semibold()).size(17.0));
-            }
+            ui.label(RichText::new(install::APP_NAME).family(semibold()).size(16.0));
             ui.add_space(12.0);
             if self.view == View::Main {
                 let mut mode = self.config.ui_mode;
@@ -2022,6 +2028,7 @@ fn health_summary(p: &Palette, h: &HealthView) -> (String, Color32) {
                     let verb = if down.len() > 1 { "не открываются" } else { "не открывается" };
                     (format!("{} {verb}", down.join(" и ")), p.danger)
                 }
+                Grade::Dead if h.plain_ms.is_some() => ("только без шифрования".into(), p.warn),
                 Grade::Dead => ("не отвечает".into(), p.danger),
             }
         }
@@ -2042,15 +2049,16 @@ fn section_title(text: &str) -> RichText {
     RichText::new(text).family(semibold()).size(15.0)
 }
 
-/// Небольшая метка фиксированной высоты, текст не переносится.
-fn badge(ui: &mut egui::Ui, fill: Color32, text_color: Color32, text: &str) {
+/// Небольшая метка фиксированной высоты, текст не переносится. Без заливки:
+/// тонкая рамка цвета `edge`, чтобы метки не спорили с заголовком.
+fn badge(ui: &mut egui::Ui, edge: Color32, text_color: Color32, text: &str) {
     let font = TextStyle::Small.resolve(ui.style());
     let galley = ui.painter().layout_no_wrap(text.to_string(), font, text_color);
     let size = Vec2::new(galley.size().x + 16.0, 22.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
     resp.widget_info(|| WidgetInfo::labeled(Role::Label, true, text));
     let painter = ui.painter();
-    painter.rect_filled(rect, CornerRadius::same(4), fill);
+    painter.rect_stroke(rect, CornerRadius::same(4), Stroke::new(1.0, edge), StrokeKind::Inside);
     painter.galley(pos2(rect.left() + 8.0, rect.center().y - galley.size().y / 2.0), galley, text_color);
 }
 
@@ -2066,10 +2074,10 @@ fn chip(ui: &mut egui::Ui, p: &Palette, on: bool, text: &str) -> Response {
 
     let lit = kit::tween(ui.ctx(), (resp.id, "lit"), on, SOFT);
     let hover = kit::tween(ui.ctx(), (resp.id, "hover"), resp.hovered(), SNAP);
-    let color = kit::mix(p.ink, p.sheet, lit);
+    let color = p.ink;
     let painter = ui.painter();
-    let fill = kit::mix(kit::fade(p.sheet_hover, 0.45 + 0.55 * hover), p.ink, lit);
-    let stroke = Stroke::new(1.0, kit::mix(kit::mix(p.rule_strong, p.ink, hover), p.ink, lit));
+    let fill = kit::mix(kit::mix(p.sheet, p.sheet_hover, hover), p.select, lit);
+    let stroke = Stroke::new(1.0, kit::mix(p.rule, p.rule_strong, hover.max(lit)));
     painter.rect(rect, CornerRadius::same(8), fill, stroke, StrokeKind::Middle);
     let mut x = rect.left() + 14.0;
     if on {

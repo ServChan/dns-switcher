@@ -2,6 +2,7 @@
 //! папки установки (например, DnsSwitcher-Setup.exe из «Загрузок»), или по
 //! `--uninstall` из «Приложений» Windows.
 
+mod demo;
 #[cfg(debug_assertions)]
 pub mod shot;
 
@@ -78,6 +79,8 @@ pub struct Wizard {
     entered_uninstall_directly: bool,
     is_admin: bool,
     page_changed: f64,
+    /// Сколько секунд идёт картинка на первой странице при этом её показе.
+    demo_clock: f32,
     /// Отладочная отрисовка в PNG: шаги не запускаются.
     #[cfg(debug_assertions)]
     headless: bool,
@@ -112,6 +115,7 @@ impl Wizard {
             entered_uninstall_directly: mode == Mode::Uninstall,
             is_admin: elevate::is_admin(),
             page_changed: f64::NEG_INFINITY,
+            demo_clock: 0.0,
             #[cfg(debug_assertions)]
             headless: false,
         }
@@ -310,6 +314,12 @@ impl Wizard {
             kit::round_corners(INSTALLER_TITLE);
         }
         kit::begin_frame(&ctx);
+        // Часы картинки идут только на её странице и когда окно впереди.
+        if self.page != Page::Welcome {
+            self.demo_clock = 0.0;
+        } else if kit::animated(&ctx) && kit::live(&ctx) {
+            self.demo_clock += ctx.input(|i| i.stable_dt).min(0.1);
+        }
         let p = theme::palette(ui);
         let screen = ctx.content_rect();
         let (w, h) = (screen.width(), screen.height());
@@ -329,7 +339,7 @@ impl Wizard {
         let mut choice = Choice::Stay;
         match self.page {
             Page::Welcome => {
-                if self.welcome(&mut page, area, now) {
+                if self.welcome(&mut page, area) {
                     choice = Choice::RunPortable;
                 }
             }
@@ -379,7 +389,17 @@ impl Wizard {
         route_strip(ui, strip, &names, current);
     }
 
-    fn welcome(&mut self, ui: &mut egui::Ui, area: Rect, now: f64) -> bool {
+    /// Картинка в оставшемся месте. Возвращает занятую высоту: без места картинки нет.
+    fn demo(&self, ui: &mut egui::Ui, x: f32, y: f32, width: f32, room: f32) -> f32 {
+        let height = room.min(demo::HEIGHT);
+        if height < demo::MIN_HEIGHT {
+            return 0.0;
+        }
+        demo::draw(ui, Rect::from_min_size(pos2(x, y), vec2(width, height)), self.demo_clock);
+        height
+    }
+
+    fn welcome(&mut self, ui: &mut egui::Ui, area: Rect) -> bool {
         let p = theme::palette(ui);
         let (x, width) = (area.left(), area.width());
         let mut y = area.top();
@@ -401,6 +421,8 @@ impl Wizard {
             if kit::choice_at(ui, remove, selected, "Удалить программу", "Можно сразу вернуть DNS подключений на автоматический.") {
                 self.maintenance = Maintenance::Remove;
             }
+            let top = remove.bottom() + 10.0;
+            self.demo(ui, x, top, width, area.bottom() - top);
             return false;
         }
 
@@ -408,9 +430,8 @@ impl Wizard {
         let text = "Переключайте DNS в один щелчок, открывайте ИИ-сервисы через специальные серверы \
                     и не теряйте интернет, если какой-то сервер перестал отвечать.";
         y += kit::paragraph(ui, text, Face::Body, 14.5, pos2(x, y), width, p.ink_weak) + 12.0;
-        let map = Rect::from_min_size(pos2(x, y), vec2(width, 120.0));
-        server_list(ui, map, (now - self.page_changed) as f32);
-        y += 132.0;
+        // Внизу остаются строка про шифрование и кнопка запуска без установки.
+        y += self.demo(ui, x, y, width, area.bottom() - y - 12.0 - 66.0) + 12.0;
         let text = "DNS-over-HTTPS в Windows 11: провайдер не видит и не подменяет запросы.";
         y += kit::paragraph(ui, text, Face::Body, 14.5, pos2(x, y), width, p.ink_weak) + 8.0;
         let label = "Запустить без установки";
@@ -729,37 +750,5 @@ fn route_strip(ui: &egui::Ui, rect: Rect, stops: &[&str], current: usize) {
             _ => c.x - width / 2.0,
         };
         kit::line(ui, name, face, 13.0, left, rect.top() + 34.0, width + 2.0, color);
-    }
-}
-
-/// Кусочек настоящего окна на первой странице: те же строки списка серверов, что и в программе.
-/// Строки появляются по очереди, затем выделяется выбранная.
-fn server_list(ui: &egui::Ui, rect: Rect, t: f32) {
-    const ROW: f32 = 40.0;
-    let p = theme::palette(ui);
-    let t = if kit::animated(ui.ctx()) { t } else { 10.0 };
-    if t < 1.2 {
-        kit::keep_moving(ui.ctx());
-    }
-    let servers = [("GeoHide EU", "работает · 38 мс"), ("Comss DNS", "работает · 64 мс"), ("Cloudflare", "работает · 12 мс")];
-    let lit = ease_out((t - 0.6) / 0.3);
-    for (i, (name, status)) in servers.into_iter().enumerate() {
-        let appear = ease_out((t - 0.1 - i as f32 * 0.14) / 0.3);
-        if appear <= 0.0 {
-            continue;
-        }
-        let top = rect.top() + i as f32 * ROW + (1.0 - appear) * 8.0;
-        let row = Rect::from_min_size(pos2(rect.left(), top), vec2(rect.width(), ROW - 2.0));
-        let selected = i == 0;
-        kit::server_row(ui, row, &kit::ServerRow {
-            name,
-            doh_only: false,
-            status: Some((status.to_string(), p.ink_weak)),
-            in_use: selected,
-            selected,
-            lit: if selected { lit } else { 0.0 },
-            hover: 0.0,
-            alpha: appear,
-        });
     }
 }

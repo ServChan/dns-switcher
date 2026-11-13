@@ -92,51 +92,26 @@ pub(super) fn chain(ui: &mut egui::Ui, p: &Palette, nodes: &[Node]) {
 }
 
 fn node_stroke(p: &Palette, state: NodeState) -> Color32 {
+    // Состояние уже передают значок и слова. Рамкой выделяется только поломка.
     match state {
-        NodeState::Ok => p.good,
-        NodeState::Warn => p.warn,
         NodeState::Bad => p.danger,
-        NodeState::Neutral => p.rule_strong,
+        NodeState::Ok | NodeState::Warn | NodeState::Neutral => p.rule,
     }
 }
 
 fn arrow(painter: &egui::Painter, p: &Palette, from: egui::Pos2, to: egui::Pos2) {
-    let stroke = Stroke::new(1.6, p.ink_weak);
-    painter.line_segment([from, to], stroke);
-    let dir = (to - from).normalized();
-    let side = Vec2::new(-dir.y, dir.x);
-    let head = 6.0;
-    painter.line_segment([to, to - dir * head + side * head * 0.6], stroke);
-    painter.line_segment([to, to - dir * head - side * head * 0.6], stroke);
+    kit::arrow(painter, p.ink_weak, from, to);
 }
 
 /// Значок состояния: галочка, крест, восклицательный знак или точка.
 pub(super) fn state_icon(painter: &egui::Painter, p: &Palette, c: egui::Pos2, r: f32, state: NodeState) {
-    let k = r / 9.0;
-    match state {
-        NodeState::Ok => {
-            painter.circle_filled(c, r, p.good);
-            let s = Stroke::new(2.0 * k, p.sheet);
-            painter.line_segment([c + Vec2::new(-4.0, 0.5) * k, c + Vec2::new(-1.2, 3.3) * k], s);
-            painter.line_segment([c + Vec2::new(-1.2, 3.3) * k, c + Vec2::new(4.5, -3.0) * k], s);
-        }
-        NodeState::Bad => {
-            painter.circle_filled(c, r, p.danger);
-            let s = Stroke::new(2.0 * k, p.sheet);
-            painter.line_segment([c + Vec2::new(-3.5, -3.5) * k, c + Vec2::new(3.5, 3.5) * k], s);
-            painter.line_segment([c + Vec2::new(3.5, -3.5) * k, c + Vec2::new(-3.5, 3.5) * k], s);
-        }
-        NodeState::Warn => {
-            painter.circle_filled(c, r, p.warn);
-            let s = Stroke::new(2.0 * k, p.sheet);
-            painter.line_segment([c + Vec2::new(0.0, -4.5) * k, c + Vec2::new(0.0, 1.0) * k], s);
-            painter.circle_filled(c + Vec2::new(0.0, 4.0) * k, 1.2 * k, p.sheet);
-        }
-        NodeState::Neutral => {
-            painter.circle_stroke(c, r - 1.0, Stroke::new(1.5, p.rule_strong));
-            painter.circle_filled(c, 2.5 * k, p.rule_strong);
-        }
-    }
+    let mark = match state {
+        NodeState::Ok => kit::Mark::Ok,
+        NodeState::Warn => kit::Mark::Warn,
+        NodeState::Bad => kit::Mark::Bad,
+        NodeState::Neutral => kit::Mark::Neutral,
+    };
+    kit::status_icon(painter, p, c, r, mark, 1.0);
 }
 
 // ---------- «Как это работает» ----------

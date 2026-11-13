@@ -60,6 +60,9 @@ impl DnsApp {
         let ms = h.best_ms().map(health::seconds).unwrap_or_default();
         let e2e_bad = self.e2e.as_ref().is_some_and(|e| !e.ok());
         nodes.push(match h.grade() {
+            Grade::Dead if h.plain_ms.is_some() => {
+                Node::new(active.name.clone(), "работает только без шифрования", NodeState::Bad)
+            }
             Grade::Dead => Node::new(active.name.clone(), "не отвечает", NodeState::Bad),
             Grade::Slow => Node::new(active.name.clone(), format!("отвечает медленно, {ms}"), NodeState::Warn),
             _ if e2e_bad => Node::new(active.name.clone(), "Windows получает ответы не от него", NodeState::Warn),
@@ -127,7 +130,7 @@ impl DnsApp {
                 NodeState::Neutral,
                 "Обход ограничений ещё не включён".into(),
                 "Нажмите «Подобрать лучший сервер»: программа проверит все серверы и включит самый \
-                 надёжный. Это займёт около 15 секунд."
+                 надёжный. Это займёт до минуты."
                     .into(),
             );
         };
@@ -203,16 +206,16 @@ impl DnsApp {
                     card().show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal_top(|ui| {
-                            let (r, _) = ui.allocate_exact_size(Vec2::splat(52.0), Sense::hover());
-                            state_icon(ui.painter(), p, r.center(), 18.0, state);
-                            ui.add_space(6.0);
+                            let (r, _) = ui.allocate_exact_size(Vec2::new(30.0, 34.0), Sense::hover());
+                            state_icon(ui.painter(), p, r.center(), 12.0, state);
+                            ui.add_space(4.0);
                             ui.vertical(|ui| {
-                                kit::display_title(ui, &title, 44.0);
+                                kit::display_title(ui, &title, 26.0);
                                 ui.add_space(2.0);
-                                ui.add(egui::Label::new(RichText::new(&subtitle).color(p.ink_weak).size(14.5)).wrap());
+                                ui.add(egui::Label::new(RichText::new(&subtitle).color(p.ink_weak)).wrap());
                             });
                         });
-                        ui.add_space(18.0);
+                        ui.add_space(20.0);
                         chain(ui, p, &self.chain_nodes());
                         ui.add_space(20.0);
 
@@ -220,7 +223,7 @@ impl DnsApp {
                             let busy = self.auto_picking || self.busy.is_some();
                             let label = if self.auto_picking { "Подбираю сервер…" } else { "Подобрать лучший сервер" };
                             let resp = kit::Button::new(label, Tone::Primary)
-                                .min(Vec2::new(250.0, 40.0))
+                                .min(Vec2::new(0.0, 36.0))
                                 .enabled(self.blocker().is_none())
                                 .busy(busy)
                                 .show(ui)
@@ -232,7 +235,7 @@ impl DnsApp {
                             let checking = self.health.values().any(|h| matches!(h, HealthView::Running));
                             let check_label = if checking { "Проверяю…" } else { "Проверить сейчас" };
                             if kit::Button::new(check_label, Tone::Plain)
-                                .min(Vec2::new(0.0, 40.0))
+                                .min(Vec2::new(0.0, 36.0))
                                 .show(ui)
                                 .on_hover_text("Ещё раз проверить всю цепочку: DNS, прокси и сервисы.")
                                 .clicked()
@@ -241,7 +244,7 @@ impl DnsApp {
                                 self.start_sweep(&ctx);
                             }
                             if kit::Button::new("Вернуть как было", Tone::Plain)
-                                .min(Vec2::new(0.0, 40.0))
+                                .min(Vec2::new(0.0, 36.0))
                                 .enabled(self.blocker().is_none() && self.busy.is_none())
                                 .show(ui)
                                 .on_hover_text("Выключить обход: DNS снова будет от роутера или провайдера.")
@@ -270,8 +273,7 @@ impl DnsApp {
                                         .size(15.0),
                                 );
                                 let text = if on {
-                                    "Если сервер перестанет отвечать, программа сама включит лучший из остальных, а потом \
-                                     вернёт ваш. Запасные Cloudflare и Google не дадут пропасть интернету."
+                                    "Если сервер перестанет отвечать, программа включит другой, а потом вернёт ваш."
                                 } else {
                                     "Если выбранный сервер перестанет отвечать, ИИ-сервисы не откроются, пока вы не \
                                      выберете другой. Включите защиту в настройках."
@@ -306,10 +308,6 @@ impl DnsApp {
                         if kit::link(ui, "Выбрать сервер вручную", 14.0).clicked() {
                             self.config.ui_mode = UiMode::Advanced;
                             self.save_config();
-                        }
-                        ui.label(RichText::new("·").color(p.ink_weak));
-                        if kit::link(ui, "Как это работает", 14.0).clicked() {
-                            self.view = View::Help;
                         }
                     });
                     ui.add_space(12.0);

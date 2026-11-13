@@ -98,14 +98,45 @@ fn pages(out: &Path, theme: Theme, ppp: f32, suffix: &str) {
     let theme_name = if theme == Theme::Dark { "dark" } else { "light" };
     let file = |name: &str| out.join(format!("{name}-{theme_name}{suffix}.png"));
 
+    // Полный круг, кадр каждые 0.8 с, на обеих формах страницы.
+    for (form, update) in [("loop", false), ("loop-update", true)] {
+        let mut rig = Rig::new(Mode::Install, ppp, theme);
+        if update {
+            rig.wizard.existing = Some(("0.9.0".into(), PathBuf::from(r"C:\Program Files\DnsSwitcher")));
+        }
+        for i in 0..=((super::demo::LOOP / 0.8) as usize) {
+            rig.run(if i == 0 { 0.4 } else { 0.8 });
+            rig.shot(&file(&format!("{form}-{i:02}")));
+        }
+    }
+
+    // Когда идут кадры.
     let mut rig = Rig::new(Mode::Install, ppp, theme);
-    rig.run(0.25);
-    rig.shot(&file("welcome-mid"));
-    rig.run(0.45);
-    rig.shot(&file("welcome-mid2"));
-    rig.run(1.2);
+    rig.run(1.9);
     rig.shot(&file("welcome"));
-    assert!(!rig.frames.ctx.has_requested_repaint(), "схема встала, а кадры всё ещё заказываются");
+    assert_eq!(kit::wanted_frames(&rig.frames.ctx), (false, true), "на удержании кадры ограничены");
+    let running = rig.wizard.demo_clock;
+    assert!(running > 1.5, "часы картинки не идут");
+    rig.frames.focused = false;
+    rig.run(1.0);
+    assert_eq!(rig.wizard.demo_clock, running, "часы идут, когда окно не впереди");
+    assert_eq!(kit::wanted_frames(&rig.frames.ctx), (false, false), "кадры идут, когда окно не впереди");
+    assert!(!rig.frames.ctx.has_requested_repaint(), "заказан кадр, когда окно не впереди");
+    rig.frames.focused = true;
+    rig.frames.minimized = true;
+    rig.run(0.5);
+    assert_eq!(rig.wizard.demo_clock, running, "часы идут в свёрнутом окне");
+    rig.frames.minimized = false;
+    rig.run(0.4);
+    assert!(rig.wizard.demo_clock > running, "картинка не продолжилась");
+    rig.go(Page::Options);
+    rig.run(2.0);
+    assert_eq!(rig.wizard.demo_clock, 0.0, "часы идут на другой странице");
+    assert_eq!(kit::wanted_frames(&rig.frames.ctx), (false, false), "кадры идут на другой странице");
+    assert!(!rig.frames.ctx.has_requested_repaint(), "заказан кадр на другой странице");
+    rig.go(Page::Welcome);
+    rig.run(0.1);
+    assert!(rig.wizard.demo_clock < 0.3, "круг не начался заново");
     rig.hover(pos2(530.0, 601.0));
     rig.shot(&file("welcome-hover-primary"));
     rig.hover(pos2(620.0, 18.0));
@@ -123,6 +154,10 @@ fn pages(out: &Path, theme: Theme, ppp: f32, suffix: &str) {
     rig.shot(&file("welcome-still"));
     rig.run(0.2);
     assert!(!rig.frames.ctx.has_requested_repaint(), "мастер заказывает кадры, хотя ничего не движется");
+    assert_eq!(rig.wizard.demo_clock, 0.0, "картинка идёт с выключенными анимациями");
+    rig.wizard.existing = Some(("0.9.0".into(), PathBuf::from(r"C:\Program Files\DnsSwitcher")));
+    rig.run(0.2);
+    rig.shot(&file("update-still"));
 
     let mut rig = Rig::new(Mode::Install, ppp, theme);
     rig.wizard.is_admin = false;

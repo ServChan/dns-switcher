@@ -46,7 +46,7 @@ fn service(name: &str, domain: &str, proxies: &[Result<u32, &str>]) -> ServiceHe
 
 fn health(ips: &[(&str, Result<u32, &str>)], services: Vec<ServiceHealth>) -> HealthView {
     let ips = ips.iter().map(|(ip, r)| IpHealth { ip: ip.to_string(), result: r.map_err(|e| e.to_string()) }).collect();
-    HealthView::Done(Health { method: Method::Doh, ips, services })
+    HealthView::Done(Health { method: Method::Doh, ips, services, plain_ms: None })
 }
 
 /// Приложение на придуманных данных: без потоков и без чтения системы.
@@ -59,7 +59,7 @@ fn fake_app(ctx: &Context) -> DnsApp {
     let mut app = DnsApp {
         runtime: RuntimeState { preferred: Some(first.clone()), active: Some(first.clone()), adapters: vec!["a".into()], on_dhcp_fallback: false },
         log_tail: vec![
-            "01.11 14:02:11  Применён GeoHide EU на Ethernet".into(),
+            "01.11 14:02:11  Применён MagicDNS на Ethernet".into(),
             "01.11 14:20:43  Comss DNS не отвечал две проверки подряд, переключаю".into(),
         ],
         adapters: vec![adapter("Ethernet", "a", true, &[&ip, "1.1.1.1"], true), adapter("Wi-Fi", "b", false, &[], false)],
@@ -108,6 +108,13 @@ fn fake_app(ctx: &Context) -> DnsApp {
             3 => health(&[("37.221.93.128", Err("время ожидания истекло"))], Vec::new()),
             4 => health(&[("192.255.159.240", Ok(77))], vec![service("Gemini", "gemini.google.com", &[Err("сброс соединения")])]),
             5 => HealthView::Running,
+            6 => {
+                let mut h = health(&[("143.20.64.192", Err("нет соединения"))], Vec::new());
+                if let HealthView::Done(h) = &mut h {
+                    h.plain_ms = Some(45);
+                }
+                h
+            }
             _ => good(12 + i as u32),
         };
         app.health.insert(name.clone(), view);

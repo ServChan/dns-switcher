@@ -55,6 +55,7 @@ fn main() -> eframe::Result {
             return Ok(());
         }
         config::prepare_data_dir();
+        monitor::apply_embedded_list();
         monitor::run_loop(Arc::new(AtomicBool::new(false)), false);
         return Ok(());
     }
@@ -71,6 +72,10 @@ fn main() -> eframe::Result {
         return Ok(()); // работу продолжает копия с правами администратора
     }
     config::prepare_data_dir();
+    // Окно программы, а не мастер установки и не тихое обновление: в нём уже новая версия.
+    if !has("--update") && !has("--uninstall") && (install::running_installed() || has("--portable")) {
+        monitor::apply_embedded_list();
+    }
     // Тихое обновление из скачанного установщика: без окна мастера.
     if has("--update") {
         if let Err(e) = install::silent_update() {

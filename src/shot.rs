@@ -17,11 +17,14 @@ pub struct Frames {
     ppp: f32,
     theme: Theme,
     pub events: Vec<Event>,
+    /// Окно впереди и не свёрнуто.
+    pub focused: bool,
+    pub minimized: bool,
 }
 
 impl Frames {
     pub fn new(ctx: Context, size: (f32, f32), ppp: f32, theme: Theme) -> Self {
-        Self { ctx, textures: HashMap::new(), primitives: Vec::new(), time: 100.0, size, ppp, theme, events: Vec::new() }
+        Self { ctx, textures: HashMap::new(), primitives: Vec::new(), time: 100.0, size, ppp, theme, events: Vec::new(), focused: true, minimized: false }
     }
 
     pub fn now(&self) -> f64 {
@@ -34,12 +37,13 @@ impl Frames {
             time: Some(self.time),
             predicted_dt: STEP,
             system_theme: Some(self.theme),
-            focused: true,
+            focused: self.focused,
             events: std::mem::take(&mut self.events),
             ..Default::default()
         };
         if let Some(viewport) = raw.viewports.get_mut(&ViewportId::ROOT) {
             viewport.native_pixels_per_point = Some(self.ppp);
+            viewport.minimized = Some(self.minimized);
         }
         self.time += STEP as f64;
         let mut output = self.ctx.run_ui(raw, |ui| paint(ui));

@@ -777,6 +777,21 @@ pub(crate) fn apply_list(list: &crate::config::ServerList) -> Vec<String> {
     changes
 }
 
+/// Список, встроенный в эту версию программы, новее последнего применённого: после
+/// обновления программы установленная копия получает исправленные адреса сразу, не дожидаясь
+/// подписанного списка с сервера. Правила те же: свои правки и выбранный сервер остаются.
+pub fn apply_embedded_list() {
+    let cfg = Config::load();
+    let list = crate::config::embedded_list();
+    if !cfg.updates.server_list || list.version <= cfg.remote_list_version {
+        return;
+    }
+    let changes = apply_list(&list);
+    if !changes.is_empty() {
+        state::log(&format!("Список серверов обновлён до версии {} из новой версии программы: {}.", list.version, changes.join(", ")));
+    }
+}
+
 /// Сервер страховки для `server`: другой сервер той же группы, который по последним
 /// проверкам работает (по истории защиты), при равенстве — выше в списке. Только для
 /// серверов обхода ИИ: для обычных DNS страховкой и так служат Cloudflare и Google.
@@ -848,14 +863,27 @@ pub(crate) fn candidates_note(checked: &[(DnsServer, Health)], skip: Option<&str
         .join("; ")
 }
 
-/// Проверяет серверы параллельно, порядок списка сохраняется.
-/// Проверяет серверы по очереди, порядок списка сохраняется. По очереди, а не все
-/// сразу: всплеск соединений сеть портит, и сравнение выходит нечестным.
+/// Сколько серверов проверяется одновременно.
+const CHECK_AT_ONCE: usize = 3;
+
+/// Проверяет серверы небольшими группами, порядок списка сохраняется. Не все сразу:
+/// всплеск соединений сеть портит, и сравнение выходит нечестным. Но и не строго по
+/// одному: в длинном списке каждый неотвечающий сервер стоил бы несколько секунд ожидания.
 pub(crate) fn check_all(cfg: &Config, servers: &[DnsServer]) -> Vec<(DnsServer, Health)> {
-    servers
-        .iter()
-        .map(|s| (s.clone(), health::check(s, cfg.use_doh, &cfg.probes, Depth::Quick)))
-        .collect()
+    let mut out = Vec::with_capacity(servers.len());
+    for group in servers.chunks(CHECK_AT_ONCE) {
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = group
+                .iter()
+                .map(|s| scope.spawn(move || health::check(s, cfg.use_doh, &cfg.probes, Depth::Quick)))
+                .collect();
+            for (s, handle) in group.iter().zip(handles) {
+                let health = handle.join().unwrap_or(Health { method: health::Method::Udp, ips: Vec::new(), services: Vec::new(), plain_ms: None });
+                out.push((s.clone(), health));
+            }
+        });
+    }
+    out
 }
 
 /// Лучший сервер с оценкой строже `than`. При равной оценке выигрывает более
@@ -989,7 +1017,8 @@ mod tests {
         let (same, fallback) = candidates(&cfg, comss);
         let ai: Vec<String> = cfg.servers.iter().filter(|s| s.ai_bypass && s.name != "Comss DNS").map(|s| s.name.clone()).collect();
         assert_eq!(names(same), ai);
-        assert_eq!(names(fallback), ["AdGuard DNS", "Google Public DNS", "Cloudflare"]);
+        let regular: Vec<String> = cfg.servers.iter().filter(|s| !s.ai_bypass).map(|s| s.name.clone()).collect();
+        assert_eq!(names(fallback), regular);
     }
 
     #[test]
@@ -1006,7 +1035,9 @@ mod tests {
     fn regular_server_has_no_separate_fallback() {
         let cfg = Config::default();
         let (same, fallback) = candidates(&cfg, cfg.find("Google Public DNS").unwrap());
-        assert_eq!(names(same), ["AdGuard DNS", "Cloudflare"]);
+        let others: Vec<String> =
+            cfg.servers.iter().filter(|s| !s.ai_bypass && s.name != "Google Public DNS").map(|s| s.name.clone()).collect();
+        assert_eq!(names(same), others);
         assert!(fallback.is_empty());
     }
 
@@ -1025,6 +1056,7 @@ mod tests {
         };
         let proxy = if proxy_ok { Ok(50) } else { Err("прокси не отвечает".to_string()) };
         let h = Health {
+            plain_ms: None,
             method: Method::Udp,
             ips: vec![IpHealth { ip: "1.1.1.1".into(), result: dns_ms.ok_or_else(|| "нет ответа".to_string()) }],
             services: vec![ServiceHealth {
@@ -1074,12 +1106,12 @@ mod tests {
         let cfg = Config::default();
         let magic = cfg.find("MagicDNS").unwrap().clone();
         let mut history = HashMap::new();
-        // GeoHide EU выше в списке, но последняя проверка неудачная: берём следующий рабочий.
-        history.insert("GeoHide EU".to_string(), vec![0, 0, 3]);
+        // Pereval выше в списке, но последняя проверка неудачная: берём надёжный по истории.
+        history.insert("Pereval".to_string(), vec![0, 0, 3]);
         history.insert("dns-ai".to_string(), vec![0, 0, 0]);
         assert_eq!(backup_from(&cfg, &magic, &history).unwrap().name, "dns-ai");
-        // Без истории — первый по списку.
-        assert_eq!(backup_from(&cfg, &magic, &HashMap::new()).unwrap().name, "GeoHide EU");
+        // Без истории — первый по списку после самого сервера.
+        assert_eq!(backup_from(&cfg, &magic, &HashMap::new()).unwrap().name, "Pereval");
         // Для обычного DNS отдельной страховки нет.
         assert!(backup_for(&cfg, cfg.find("Cloudflare").unwrap()).is_none());
     }

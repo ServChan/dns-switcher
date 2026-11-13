@@ -16,6 +16,8 @@ pub struct Palette {
     pub sheet: Color32,
     /// Заливка простой кнопки и поля только для чтения.
     pub sheet_hover: Color32,
+    /// Заливка выбранной строки, пункта и варианта: тихая, текст на ней остаётся чернильным.
+    pub select: Color32,
     /// Основной текст, главная кнопка, выбранная строка.
     pub ink: Color32,
     /// Вторичный текст.
@@ -40,7 +42,8 @@ const fn hex(rgb: u32) -> Color32 {
 pub const LIGHT: Palette = Palette {
     ground: hex(0xEFEADD),
     sheet: hex(0xFAF7EF),
-    sheet_hover: hex(0xEEE9DB),
+    sheet_hover: hex(0xE7E1D2),
+    select: hex(0xDDD6C3),
     ink: hex(0x1B1D21),
     ink_weak: hex(0x5B5A54),
     rule: hex(0xD8D2C1),
@@ -48,13 +51,14 @@ pub const LIGHT: Palette = Palette {
     danger: hex(0xA6171F),
     on_danger: hex(0xFBF8F0),
     good: hex(0x12743A),
-    warn: hex(0x8A5300),
+    warn: hex(0x7E4B00),
 };
 
 pub const DARK: Palette = Palette {
     ground: hex(0x101317),
     sheet: hex(0x191D23),
-    sheet_hover: hex(0x242A32),
+    sheet_hover: hex(0x20252C),
+    select: hex(0x29303A),
     ink: hex(0xEDE7D9),
     ink_weak: hex(0xA9A598),
     rule: hex(0x2C3239),
@@ -247,6 +251,9 @@ mod tests {
             assert!(contrast(p.ink, p.rule) >= 4.5);
             assert!(contrast(p.on_danger, p.danger) >= 4.5);
             assert!(contrast(p.sheet, p.ink) >= 4.5);
+            for text in [p.ink, p.ink_weak, p.danger, p.warn] {
+                assert!(contrast(text, p.select) >= 4.5, "{text:?} на выделении");
+            }
         }
     }
 }

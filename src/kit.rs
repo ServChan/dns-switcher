@@ -76,6 +76,8 @@ struct Motion {
     dt: f32,
     on: bool,
     moving: bool,
+    /// Медленная картинка просит кадры по ограниченной частоте.
+    ambient: bool,
 }
 
 impl Motion {
@@ -96,7 +98,7 @@ impl Motion {
 fn motion<R>(ctx: &Context, f: impl FnOnce(&mut Motion) -> R) -> R {
     let store: Arc<Mutex<Motion>> = ctx.data_mut(|d| {
         d.get_temp_mut_or_insert_with(Id::unique("kit-motion"), || {
-            Arc::new(Mutex::new(Motion { springs: HashMap::new(), dt: 1.0 / 60.0, on: windows_animates(), moving: false }))
+            Arc::new(Mutex::new(Motion { springs: HashMap::new(), dt: 1.0 / 60.0, on: windows_animates(), moving: false, ambient: false }))
         })
         .clone()
     });
@@ -110,15 +112,38 @@ pub fn begin_frame(ctx: &Context) {
     motion(ctx, |m| {
         m.dt = dt;
         m.moving = false;
+        m.ambient = false;
     });
     track_keyboard(ctx);
 }
 
 /// Конец кадра: следующий заказывается, только пока что-то движется.
 pub fn end_frame(ctx: &Context) {
-    if motion(ctx, |m| m.moving) {
+    let (moving, ambient) = motion(ctx, |m| (m.moving, m.ambient));
+    if moving {
         ctx.request_repaint();
+    } else if ambient {
+        ctx.request_repaint_after(AMBIENT_FRAME);
     }
+}
+
+/// Между кадрами удерживаемой сцены: около 30 в секунду.
+const AMBIENT_FRAME: std::time::Duration = std::time::Duration::from_millis(33);
+
+/// Заказать кадр по ограниченной частоте: что-то движется, но медленно.
+pub fn ambient(ctx: &Context) {
+    motion(ctx, |m| m.ambient = true);
+}
+
+/// Окно видно и впереди: только тогда идёт картинка на первой странице.
+pub fn live(ctx: &Context) -> bool {
+    ctx.input(|i| i.focused && i.viewport().minimized != Some(true))
+}
+
+/// Только для отладочной сборки: какие кадры заказаны, частые и редкие.
+#[cfg(debug_assertions)]
+pub fn wanted_frames(ctx: &Context) -> (bool, bool) {
+    motion(ctx, |m| (m.moving, m.ambient))
 }
 
 /// Заказать следующий кадр: что-то движется не на пружине.
@@ -292,13 +317,14 @@ pub fn paragraph_height(ui: &Ui, text: &str, face: Face, size: f32, width: f32) 
 }
 
 /// Единственный крупный заголовок экрана, с переносами, в общей раскладке.
+/// Обычной ширины и полужирный: крупнее остального, но не кричит.
 pub fn display_title(ui: &mut Ui, text: &str, size: f32) {
     let p = palette(ui);
     let width = ui.available_width();
-    let height = paragraph_height(ui, text, Face::Display, size, width);
+    let height = paragraph_height(ui, text, Face::Semi, size, width);
     let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
     response.widget_info(|| WidgetInfo::labeled(Role::Heading, true, text));
-    paragraph(ui, text, Face::Display, size, rect.min, width, p.ink);
+    paragraph(ui, text, Face::Semi, size, rect.min, width, p.ink);
 }
 
 // ---------- Линии ----------
@@ -324,6 +350,56 @@ pub fn hairline(ui: &mut Ui) {
     ui.painter().rect_filled(rect, CornerRadius::ZERO, palette(ui).rule);
 }
 
+/// Значок состояния: галочка, крест, восклицательный знак или точка. Состояние передаётся им
+/// и словами рядом, а не только цветом.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Mark {
+    Ok,
+    Warn,
+    Bad,
+    Neutral,
+}
+
+pub fn status_icon(painter: &egui::Painter, p: &theme::Palette, c: Pos2, r: f32, mark: Mark, alpha: f32) {
+    let k = r / 9.0;
+    let ground = fade(p.sheet, alpha);
+    let disc = |color: Color32| painter.circle_filled(c, r, fade(color, alpha));
+    match mark {
+        Mark::Ok => {
+            disc(p.good);
+            let s = Stroke::new(2.0 * k, ground);
+            painter.line_segment([c + vec2(-4.0, 0.5) * k, c + vec2(-1.2, 3.3) * k], s);
+            painter.line_segment([c + vec2(-1.2, 3.3) * k, c + vec2(4.5, -3.0) * k], s);
+        }
+        Mark::Bad => {
+            disc(p.danger);
+            let s = Stroke::new(2.0 * k, ground);
+            painter.line_segment([c + vec2(-3.5, -3.5) * k, c + vec2(3.5, 3.5) * k], s);
+            painter.line_segment([c + vec2(3.5, -3.5) * k, c + vec2(-3.5, 3.5) * k], s);
+        }
+        Mark::Warn => {
+            disc(p.warn);
+            let s = Stroke::new(2.0 * k, ground);
+            painter.line_segment([c + vec2(0.0, -4.5) * k, c + vec2(0.0, 1.0) * k], s);
+            painter.circle_filled(c + vec2(0.0, 4.0) * k, 1.2 * k, ground);
+        }
+        Mark::Neutral => {
+            painter.circle_stroke(c, r - 1.0, Stroke::new(1.5, fade(p.rule_strong, alpha)));
+            painter.circle_filled(c, 2.5 * k, fade(p.rule_strong, alpha));
+        }
+    }
+}
+
+pub fn arrow(painter: &egui::Painter, color: Color32, from: Pos2, to: Pos2) {
+    let stroke = Stroke::new(1.6, color);
+    painter.line_segment([from, to], stroke);
+    let dir = (to - from).normalized();
+    let side = vec2(-dir.y, dir.x);
+    let head = 6.0;
+    painter.line_segment([to, to - dir * head + side * head * 0.6], stroke);
+    painter.line_segment([to, to - dir * head - side * head * 0.6], stroke);
+}
+
 // ---------- Управление ----------
 
 #[derive(Clone, Copy, PartialEq)]
@@ -332,6 +408,19 @@ pub enum Tone {
     Danger,
     Plain,
     Quiet,
+}
+
+/// Тихое выделение: заливка чуть темнее фона, текст остаётся чернильным.
+/// `bar` добавляет короткую полоску слева, как у пунктов списка в Windows 11.
+pub fn select_fill(ui: &Ui, rect: Rect, lit: f32, hover: f32, bar: Option<Color32>) {
+    let p = palette(ui);
+    let fill = mix(fade(p.sheet_hover, hover), p.select, lit);
+    ui.painter().rect_filled(rect, CornerRadius::same(8), fill);
+    if let Some(color) = bar.filter(|_| lit > 0.01) {
+        let h = (rect.height() * 0.42).min(18.0) * lit;
+        let bar = Rect::from_center_size(pos2(rect.left() + 1.5, rect.center().y), vec2(3.0, h));
+        ui.painter().rect_filled(bar, CornerRadius::same(2), color);
+    }
 }
 
 /// Рамка фокуса нужна, когда ходят клавишей Tab, а не мышью.
@@ -384,14 +473,14 @@ fn paint_button(ui: &Ui, response: &Response, rect: Rect, label: &str, tone: Ton
     let (fill, text) = match tone {
         Tone::Primary => (mix(p.ink, p.ink_weak, 0.25 * hover), p.sheet),
         Tone::Danger => (mix(p.danger, p.ink, 0.18 * hover), p.on_danger),
-        Tone::Plain => (fade(p.sheet_hover, 0.45 + 0.55 * hover), p.ink),
+        Tone::Plain => (mix(p.sheet, p.sheet_hover, hover), p.ink),
         Tone::Quiet => (fade(p.sheet_hover, hover), p.ink),
     };
     // Занятая кнопка остаётся яркой: «идёт работа» не значит «нельзя».
     let dim = if enabled || busy { 1.0 } else { 0.5 };
     ui.painter().rect_filled(shown, CornerRadius::same(8), fade(fill, dim));
     if tone == Tone::Plain {
-        let stroke = Stroke::new(1.0, fade(mix(p.rule_strong, p.ink, hover), dim));
+        let stroke = Stroke::new(1.0, fade(mix(p.rule, p.rule_strong, hover), dim));
         ui.painter().rect_stroke(shown, CornerRadius::same(8), stroke, StrokeKind::Middle);
     }
     let face = if matches!(tone, Tone::Primary | Tone::Danger) { Face::Semi } else { Face::Body };
@@ -536,21 +625,26 @@ fn paint_choice(ui: &Ui, response: &Response, rect: Rect, selected: bool, title:
     let lit = tween(ctx, (id, "lit"), selected, SOFT);
     let hover = tween(ctx, (id, "hover"), response.hovered(), SNAP);
     let radius = CornerRadius::same(10);
-    let shape = if lit > 0.99 { rect.expand(0.5) } else { rect };
-    ui.painter().rect_filled(shape, radius, mix(fade(p.sheet_hover, 0.3 + 0.7 * hover), p.ink, lit));
-    if lit <= 0.99 {
-        ui.painter().rect_stroke(rect, radius, Stroke::new(1.0, mix(p.rule_strong, p.ink, lit)), StrokeKind::Middle);
+    ui.painter().rect_filled(rect, radius, mix(fade(p.sheet_hover, hover), p.select, lit));
+    ui.painter().rect_stroke(rect, radius, Stroke::new(1.0, mix(p.rule, p.rule_strong, hover)), StrokeKind::Inside);
+    // Выбор виден по кружку, а не только по заливке.
+    let c = pos2(rect.left() + 24.0, rect.top() + 21.0);
+    circle(ui, c, 8.0, Color32::TRANSPARENT, Stroke::new(1.5, mix(p.rule_strong, p.ink, lit)));
+    if lit > 0.01 {
+        circle(ui, c, 4.0 * lit, p.ink, Stroke::NONE);
     }
-    let (ink, weak) = (mix(p.ink, p.sheet, lit), mix(p.ink_weak, p.sheet, lit));
-    let width = rect.width() - 32.0;
-    line(ui, title, Face::Semi, 15.0, rect.left() + 16.0, rect.top() + 21.0, width, ink);
-    paragraph(ui, text, Face::Body, 13.0, pos2(rect.left() + 16.0, rect.top() + 34.0), width, weak);
+    let (ink, weak) = (p.ink, p.ink_weak);
+    let x = rect.left() + 42.0;
+    let width = rect.right() - 16.0 - x;
+    let face = if selected { Face::Semi } else { Face::Body };
+    line(ui, title, face, 14.5, x, rect.top() + 21.0, width, ink);
+    paragraph(ui, text, Face::Body, 13.0, pos2(x, rect.top() + 34.0), width, weak);
     if response.has_focus() {
         focus_ring(ui, rect, 10.0, ink);
     }
 }
 
-/// Строка выбора на заданном месте: выбранная заливается чернилами с подъездом.
+/// Строка выбора на заданном месте: кружок слева, выбранная чуть темнее.
 pub fn choice_at(ui: &Ui, rect: Rect, selected: bool, title: &str, text: &str) -> bool {
     let response = widget(ui, Id::unique(("kit-choice", title)), rect, true);
     response.widget_info(|| WidgetInfo::selected(Role::RadioButton, true, selected, title));
@@ -561,7 +655,7 @@ pub fn choice_at(ui: &Ui, rect: Rect, selected: bool, title: &str, text: &str) -
 /// Строка выбора в общей раскладке: по высоте вмещает текст.
 pub fn choice(ui: &mut Ui, selected: bool, title: &str, text: &str) -> bool {
     let width = ui.available_width();
-    let height = (paragraph_height(ui, text, Face::Body, 13.0, width - 32.0) + 44.0).max(62.0);
+    let height = (paragraph_height(ui, text, Face::Body, 13.0, width - 58.0) + 44.0).max(62.0);
     let enabled = ui.is_enabled();
     let (rect, response) = allocate(ui, vec2(width, height), true);
     response.widget_info(|| WidgetInfo::selected(Role::RadioButton, enabled, selected, title));
@@ -576,7 +670,7 @@ pub fn choice(ui: &mut Ui, selected: bool, title: &str, text: &str) -> bool {
     response.clicked()
 }
 
-/// Несколько взаимоисключающих значений в строку: выбранное залито чернилами.
+/// Несколько взаимоисключающих значений в строку: выбранное чуть темнее, подпись ярче.
 pub fn segments<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, &str)]) -> bool {
     let p = palette(ui);
     let mut changed = false;
@@ -592,9 +686,9 @@ pub fn segments<T: PartialEq + Copy>(ui: &mut Ui, value: &mut T, options: &[(T, 
             let lit = tween(ui.ctx(), (response.id, "lit"), selected, SOFT);
             let hover = tween(ui.ctx(), (response.id, "hover"), enabled && response.hovered(), SNAP);
             let dim = if enabled { 1.0 } else { 0.5 };
-            let fill = mix(fade(p.sheet_hover, 0.45 * hover + 0.55 * hover), p.ink, lit);
+            let fill = mix(fade(p.sheet_hover, hover), p.select, lit);
             ui.painter().rect_filled(rect, CornerRadius::same(8), fade(fill, dim));
-            let color = mix(p.ink, p.sheet, lit);
+            let color = mix(p.ink_weak, p.ink, lit.max(hover));
             line(ui, label, Face::Body, 14.0, rect.left() + 12.0, rect.center().y, width, fade(color, dim));
             if response.has_focus() {
                 focus_ring(ui, rect, 8.0, color);
@@ -615,8 +709,8 @@ pub fn nav_item(ui: &mut Ui, selected: bool, label: &str) -> Response {
     response.widget_info(|| WidgetInfo::selected(Role::Tab, true, selected, label));
     let lit = tween(ui.ctx(), (response.id, "lit"), selected, SOFT);
     let hover = tween(ui.ctx(), (response.id, "hover"), response.hovered(), SNAP);
-    ui.painter().rect_filled(rect, CornerRadius::same(8), mix(fade(p.sheet_hover, hover), p.ink, lit));
-    let color = mix(p.ink, p.sheet, lit);
+    select_fill(ui, rect, lit, hover, Some(p.ink));
+    let color = p.ink;
     let face = if selected { Face::Semi } else { Face::Body };
     line(ui, label, face, 14.0, rect.left() + 12.0, rect.center().y, rect.width() - 24.0, color);
     if response.has_focus() {
@@ -663,15 +757,6 @@ pub fn read_only_field(ui: &Ui, rect: Rect, value: &str) {
     line(ui, value, Face::Body, 14.0, rect.left() + 12.0, rect.center().y, rect.width() - 24.0, p.ink_weak);
 }
 
-/// Метка фиксированной высоты: `right` задаёт её правый край, `y` середину.
-pub fn badge(ui: &Ui, right: f32, y: f32, text: &str, fill: Color32, color: Color32) -> f32 {
-    let width = text_width(ui, text, Face::Body, 12.5) + 16.0;
-    let rect = Rect::from_min_size(pos2(right - width, y - 11.0), vec2(width, 22.0));
-    ui.painter().rect_filled(rect, CornerRadius::same(4), fill);
-    line(ui, text, Face::Body, 12.5, rect.left() + 8.0, y, width, color);
-    width
-}
-
 /// Что показывает строка списка серверов.
 pub struct ServerRow<'a> {
     pub name: &'a str,
@@ -683,6 +768,10 @@ pub struct ServerRow<'a> {
     pub lit: f32,
     pub hover: f32,
     pub alpha: f32,
+    /// Насколько выделенная строка покраснела: сервер перестал отвечать.
+    pub alert: f32,
+    /// Заливку выделения рисует вызывающий: она едет через несколько строк.
+    pub bare: bool,
 }
 
 /// Строка списка серверов. Её же рисует мастер установки на первой странице, поэтому
@@ -690,19 +779,24 @@ pub struct ServerRow<'a> {
 pub fn server_row(ui: &Ui, rect: Rect, row: &ServerRow) {
     let p = palette(ui);
     let a = row.alpha;
-    let fill = mix(fade(p.sheet_hover, row.hover), p.ink, row.lit);
-    ui.painter().rect_filled(rect, CornerRadius::same(8), fade(fill, a));
+    if !row.bare {
+        selection_slab(ui, rect, row.lit, row.hover, row.alert, a);
+    }
     let y = rect.center().y;
-    let (ink, weak) = (mix(p.ink, p.sheet, row.lit), mix(p.ink_weak, p.sheet, row.lit));
+    let (ink, weak) = (p.ink, p.ink_weak);
     let left = rect.left() + 14.0;
     let mut right = rect.right() - 14.0;
     if let Some((text, color)) = &row.status {
-        let color = fade(mix(*color, p.sheet, row.lit), a);
-        right -= line_right(ui, text, Face::Body, 12.5, right, y, color) + 8.0;
+        right -= line_right(ui, text, Face::Body, 12.5, right, y, fade(*color, a)) + 8.0;
     }
     if row.in_use {
-        let (fill, color) = (mix(p.rule, fade(p.sheet, 0.2), row.lit), mix(p.ink, p.sheet, row.lit));
-        right -= badge(ui, right, y, "используется", fade(fill, a), fade(color, a)) + 8.0;
+        // Галочка и слово вместо плашки: видно и без цвета, и не спорит с именем.
+        let w = line_right(ui, "используется", Face::Body, 12.5, right, y, fade(p.ink, a));
+        let c = pos2(right - w - 10.0, y);
+        let s = Stroke::new(1.6, fade(p.ink, a));
+        ui.painter().line_segment([c + vec2(-4.0, 0.0), c + vec2(-1.2, 3.0)], s);
+        ui.painter().line_segment([c + vec2(-1.2, 3.0), c + vec2(4.0, -3.5)], s);
+        right -= w + 18.0 + 12.0;
     }
     let face = if row.selected { Face::Semi } else { Face::Body };
     let room = (right - left).max(40.0);
@@ -711,10 +805,27 @@ pub fn server_row(ui: &Ui, rect: Rect, row: &ServerRow) {
         let tag = "только DoH";
         let tag_width = text_width(ui, tag, Face::Body, 12.5) + 16.0;
         name_width = name_width.min((room - tag_width - 8.0).max(40.0));
-        let fill = mix(p.rule, fade(p.sheet, 0.2), row.lit);
-        badge(ui, left + name_width + 8.0 + tag_width, y, tag, fade(fill, a), fade(weak, a));
+        let tag_left = left + name_width + 8.0;
+        let tag_rect = Rect::from_min_size(pos2(tag_left, y - 10.0), vec2(tag_width, 20.0));
+        ui.painter().rect_stroke(tag_rect, CornerRadius::same(4), Stroke::new(1.0, fade(p.rule_strong, 0.6 * a)), StrokeKind::Inside);
+        line(ui, tag, Face::Body, 12.5, tag_rect.left() + 8.0, y, tag_width, fade(weak, a));
     }
     line(ui, row.name, face, 14.0, left, y, name_width.min(room) + 2.0, fade(ink, a));
+}
+
+/// Заливка выбранной строки списка с полоской слева. Мастер установки рисует её сам,
+/// когда она едет со строки на строку. `alert` красит полоску и чуть подкрашивает заливку:
+/// сервер перестал отвечать.
+pub fn selection_slab(ui: &Ui, rect: Rect, lit: f32, hover: f32, alert: f32, alpha: f32) {
+    let p = palette(ui);
+    let base = mix(fade(p.sheet_hover, hover), p.select, lit);
+    let fill = mix(base, mix(p.select, p.danger, 0.16), alert * lit);
+    ui.painter().rect_filled(rect, CornerRadius::same(8), fade(fill, alpha));
+    if lit > 0.01 {
+        let h = (rect.height() * 0.42).min(18.0) * lit;
+        let bar = Rect::from_center_size(pos2(rect.left() + 1.5, rect.center().y), vec2(3.0, h));
+        ui.painter().rect_filled(bar, CornerRadius::same(2), fade(mix(p.ink, p.danger, alert), alpha));
+    }
 }
 
 /// Значок закрытия и верхняя полоса окна: ячейка заливается красным при наведении.
