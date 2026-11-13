@@ -1,23 +1,41 @@
 {
-  "version": 1,
+  "version": 2,
   "servers": [
     {
+      "name": "MagicDNS",
+      "ipv4": ["217.144.190.216", "109.120.187.249"],
+      "ipv6": [],
+      "doh": "https://api.magicinfo.art/rpc",
+      "ai_bypass": true,
+      "doh_only": false,
+      "note": "magicdns.ru. Gemini, AI Studio, ChatGPT, Claude, Copilot, Perplexity, Grok и ещё 30+ сервисов. Адреса сменились 4 ноября 2026."
+    },
+    {
+      "name": "Pereval",
+      "ipv4": ["153.80.200.170"],
+      "ipv6": [],
+      "doh": "https://free.pereval.top/dns-query",
+      "ai_bypass": true,
+      "doh_only": false,
+      "note": "pereval.top, бесплатный тариф без регистрации. Claude, ChatGPT, Gemini, AI Studio, NotebookLM, Grok, Copilot, Cursor. IPv6 лучше выключить."
+    },
+    {
+      "name": "Dagami DNS",
+      "ipv4": ["48.102.213.179"],
+      "ipv6": [],
+      "doh": "https://dns.dagami.ru/dns-query",
+      "ai_bypass": true,
+      "doh_only": false,
+      "note": "dns.dagami.ru. ChatGPT, Gemini, Copilot, GitHub, OpenRouter. Claude может показать проверку Cloudflare."
+    },
+    {
       "name": "GeoHide EU",
-      "ipv4": ["143.20.64.192", "45.13.237.213", "37.221.93.128"],
+      "ipv4": ["5.175.161.40", "37.221.93.141", "143.20.64.192", "31.25.239.132"],
       "ipv6": [],
       "doh": "https://eu.geohide.ru/dns-query",
       "ai_bypass": true,
       "doh_only": false,
-      "note": "eu.geohide.ru. DNS и прокси в Европе: Gemini, AI Studio, NotebookLM, ChatGPT."
-    },
-    {
-      "name": "MagicDNS",
-      "ipv4": ["109.120.132.43", "94.249.177.102"],
-      "ipv6": [],
-      "doh": "https://dns.magicdns.ru/dns-query",
-      "ai_bypass": true,
-      "doh_only": false,
-      "note": "magicdns.ru. Claude, Gemini, ChatGPT, Perplexity, Cursor и ещё 30+ сервисов."
+      "note": "eu.geohide.ru. DNS и прокси в Европе: ChatGPT, Gemini, Claude, Grok."
     },
     {
       "name": "dns-ai",
@@ -26,34 +44,52 @@
       "doh": "https://dns.dns-ai.ru/dns-query",
       "ai_bypass": true,
       "doh_only": true,
-      "note": "dns-ai.ru. Только зашифрованный DNS: обычный порт 53 не отвечает."
+      "note": "dns-ai.ru. Только зашифрованный DNS: обычный порт 53 отвечает лишь российским адресам. Gemini бывает недоступен."
     },
     {
-      "name": "GeoHide US",
-      "ipv4": ["192.255.159.240", "192.255.159.241"],
+      "name": "Zapret DNS",
+      "ipv4": ["172.67.164.60", "104.21.15.208"],
       "ipv6": [],
-      "doh": "https://us.geohide.ru/dns-query",
+      "doh": "https://dns.zapret.moe/dns-query",
+      "ai_bypass": true,
+      "doh_only": true,
+      "note": "zapret.moe. 20 ИИ-сервисов: ChatGPT, Gemini, Claude, Grok, Copilot, Cursor, OpenRouter. Только зашифрованный DNS через Cloudflare."
+    },
+    {
+      "name": "malw.link",
+      "ipv4": ["179.254.166.171", "164.5.224.81"],
+      "ipv6": ["2a12:bec4:1bb0:27dd::2", "2a13:82c0:0:d::3"],
+      "doh": "https://dns.malw.link/dns-query",
       "ai_bypass": true,
       "doh_only": false,
-      "note": "us.geohide.ru. DNS и прокси в США. Часть прокси бывает недоступна."
+      "note": "dns.malw.link. ChatGPT, Claude, Gemini, NotebookLM, AI Studio, Grok, Copilot. Прокси иногда пропадают."
+    },
+    {
+      "name": "WLRus",
+      "ipv4": ["95.85.240.254", "138.124.254.134"],
+      "ipv6": [],
+      "doh": "https://dns.wlrus.cfd/dns-query",
+      "ai_bypass": true,
+      "doh_only": false,
+      "note": "dns.wlrus.cfd. ChatGPT, Gemini, Claude. Официальной страницы нет."
+    },
+    {
+      "name": "GeoHide RU",
+      "ipv4": ["193.233.112.67", "193.233.112.88", "37.230.192.51"],
+      "ipv6": [],
+      "doh": "https://dns.geohide.ru/dns-query",
+      "ai_bypass": true,
+      "doh_only": false,
+      "note": "dns.geohide.ru. Основной пул GeoHide: DNS в России, прокси за границей."
     },
     {
       "name": "Comss DNS",
-      "ipv4": ["83.220.169.155", "212.109.195.93"],
+      "ipv4": ["141.133.183.77", "141.133.184.24", "212.109.195.93"],
       "ipv6": [],
       "doh": "https://dns.comss.one/dns-query",
       "ai_bypass": true,
       "doh_only": false,
-      "note": "comss.one. ChatGPT и другие ИИ-сервисы, блокировка рекламы и трекеров."
-    },
-    {
-      "name": "Xbox-DNS",
-      "ipv4": ["111.88.96.54", "111.88.96.55"],
-      "ipv6": ["2a00:ab00:1233:26::50", "2a00:ab00:1233:26::51"],
-      "doh": "https://xbox-dns.ru/dns-query",
-      "ai_bypass": true,
-      "doh_only": false,
-      "note": "xbox-dns.ru. Xbox Live, игры, ChatGPT, Claude, Gemini, Copilot."
+      "note": "comss.one. ИИ-сервисы обходит только для российских адресов, бесплатно в основном Gemini. Блокирует рекламу."
     },
     {
       "name": "AdGuard DNS",
@@ -63,6 +99,33 @@
       "ai_bypass": false,
       "doh_only": false,
       "note": "Блокирует рекламу и трекеры."
+    },
+    {
+      "name": "Quad9",
+      "ipv4": ["9.9.9.9", "149.112.112.112"],
+      "ipv6": ["2620:fe::fe", "2620:fe::9"],
+      "doh": "https://dns.quad9.net/dns-query",
+      "ai_bypass": false,
+      "doh_only": false,
+      "note": "Блокирует вредоносные сайты."
+    },
+    {
+      "name": "Яндекс DNS",
+      "ipv4": ["77.88.8.8", "77.88.8.1"],
+      "ipv6": ["2a02:6b8::feed:ff", "2a02:6b8:0:1::feed:ff"],
+      "doh": "https://common.dot.dns.yandex.net/dns-query",
+      "ai_bypass": false,
+      "doh_only": false,
+      "note": "Серверы в России: быстро открывает российские сайты."
+    },
+    {
+      "name": "OpenDNS",
+      "ipv4": ["208.67.222.222", "208.67.220.220"],
+      "ipv6": ["2620:119:35::35", "2620:119:53::53"],
+      "doh": "https://doh.opendns.com/dns-query",
+      "ai_bypass": false,
+      "doh_only": false,
+      "note": ""
     },
     {
       "name": "Google Public DNS",

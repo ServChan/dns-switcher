@@ -294,10 +294,17 @@ fn h2_post(tls: &mut Tls, host: &str, path: &str, message: &[u8], deadline: Inst
     }
 }
 
-fn describe_io(e: &std::io::Error) -> String {
+/// Ошибка сети коротко и по-русски: системный текст Windows длинный и пугающий
+/// («Программа на вашем хост-компьютере разорвала…»).
+pub(crate) fn describe_io(e: &std::io::Error) -> String {
     match e.kind() {
         ErrorKind::TimedOut | ErrorKind::WouldBlock => "нет ответа".into(),
         ErrorKind::InvalidData => crate::health::tls_error_text(e),
+        ErrorKind::ConnectionAborted | ErrorKind::ConnectionReset | ErrorKind::BrokenPipe | ErrorKind::UnexpectedEof => {
+            "соединение сброшено".into()
+        }
+        ErrorKind::ConnectionRefused => "соединение отклонено".into(),
+        ErrorKind::NetworkUnreachable | ErrorKind::HostUnreachable | ErrorKind::NetworkDown => "сеть недоступна".into(),
         _ => e.to_string(),
     }
 }

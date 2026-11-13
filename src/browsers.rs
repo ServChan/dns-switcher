@@ -60,6 +60,27 @@ impl BrowserDns {
     }
 }
 
+/// Только для отладочной сборки: браузеры для снимков окна, система не читается.
+#[cfg(debug_assertions)]
+pub fn preview() -> Vec<BrowserDns> {
+    let browser = |name, mode, template: &str, by_policy, running| BrowserDns {
+        name,
+        mode,
+        template: template.to_string(),
+        by_policy,
+        running,
+        settings_url: "chrome://settings/security",
+        exe: "chrome.exe",
+        path_hint: "",
+        kind: Kind::Firefox { prefs: Vec::new() },
+    };
+    vec![
+        browser("Google Chrome", DnsMode::Own, "https://dns.google/dns-query", false, true),
+        browser("Microsoft Edge", DnsMode::Automatic, "", true, false),
+        browser("Яндекс Браузер", DnsMode::System, "", false, false),
+    ]
+}
+
 struct Chromium {
     name: &'static str,
     exe: &'static str,

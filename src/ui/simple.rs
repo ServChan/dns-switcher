@@ -46,7 +46,7 @@ impl DnsApp {
 
         let Some(active) = self.active_server() else {
             nodes.push(Node::new("DNS для обхода", "не выбран", NodeState::Neutral));
-            nodes.push(Node::new("Прокси", "—", NodeState::Neutral));
+            nodes.push(Node::new("Прокси", "нет данных", NodeState::Neutral));
             nodes.push(Node::new("ИИ-сервисы", "откроются после выбора сервера", NodeState::Neutral));
             return nodes;
         };
@@ -60,6 +60,9 @@ impl DnsApp {
         let ms = h.best_ms().map(health::seconds).unwrap_or_default();
         let e2e_bad = self.e2e.as_ref().is_some_and(|e| !e.ok());
         nodes.push(match h.grade() {
+            Grade::Dead if h.plain_ms.is_some() => {
+                Node::new(active.name.clone(), "работает только без шифрования", NodeState::Bad)
+            }
             Grade::Dead => Node::new(active.name.clone(), "не отвечает", NodeState::Bad),
             Grade::Slow => Node::new(active.name.clone(), format!("отвечает медленно, {ms}"), NodeState::Warn),
             _ if e2e_bad => Node::new(active.name.clone(), "Windows получает ответы не от него", NodeState::Warn),
@@ -127,7 +130,7 @@ impl DnsApp {
                 NodeState::Neutral,
                 "Обход ограничений ещё не включён".into(),
                 "Нажмите «Подобрать лучший сервер»: программа проверит все серверы и включит самый \
-                 надёжный. Это займёт около 15 секунд."
+                 надёжный. Это займёт до минуты."
                     .into(),
             );
         };
@@ -200,61 +203,50 @@ impl DnsApp {
 
                     // Главная карточка: итог, схема, действия.
                     let (state, title, subtitle) = self.overall();
-                    card(p).inner_margin(Margin::same(22)).show(ui, |ui| {
+                    card().show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            let (r, _) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::hover());
-                            state_icon(ui.painter(), p, r.center(), 18.0, state);
-                            ui.add_space(6.0);
+                        ui.horizontal_top(|ui| {
+                            let (r, _) = ui.allocate_exact_size(Vec2::new(30.0, 34.0), Sense::hover());
+                            state_icon(ui.painter(), p, r.center(), 12.0, state);
+                            ui.add_space(4.0);
                             ui.vertical(|ui| {
-                                ui.label(RichText::new(&title).family(semibold()).size(24.0));
-                                ui.add(egui::Label::new(RichText::new(&subtitle).color(p.text_weak)).wrap());
+                                kit::display_title(ui, &title, 26.0);
+                                ui.add_space(2.0);
+                                ui.add(egui::Label::new(RichText::new(&subtitle).color(p.ink_weak)).wrap());
                             });
                         });
-                        ui.add_space(18.0);
+                        ui.add_space(20.0);
                         chain(ui, p, &self.chain_nodes());
                         ui.add_space(20.0);
 
                         ui.horizontal_wrapped(|ui| {
                             let busy = self.auto_picking || self.busy.is_some();
                             let label = if self.auto_picking { "Подбираю сервер…" } else { "Подобрать лучший сервер" };
-                            let size = Vec2::new(250.0, 44.0);
-                            let btn = egui::Button::new((
-                                egui::Atom::grow(),
-                                RichText::new(label).family(semibold()).size(15.0).color(p.on_accent),
-                                egui::Atom::grow(),
-                            ))
-                            .fill(p.accent)
-                            .stroke(Stroke::NONE)
-                            .min_size(size);
-                            let resp = ui
-                                .add_enabled(self.blocker().is_none(), btn)
+                            let resp = kit::Button::new(label, Tone::Primary)
+                                .min(Vec2::new(0.0, 36.0))
+                                .enabled(self.blocker().is_none())
+                                .busy(busy)
+                                .show(ui)
                                 .on_hover_text("Проверить все серверы для ИИ и включить самый надёжный.")
                                 .on_disabled_hover_text(self.blocker().unwrap_or_default());
-                            if busy {
-                                let r = resp.rect;
-                                egui::Spinner::new()
-                                    .color(p.on_accent)
-                                    .paint_at(ui, Rect::from_center_size(pos2(r.left() + 24.0, r.center().y), Vec2::splat(16.0)));
-                            }
                             if resp.clicked() && !busy {
                                 self.start_auto_pick(&ctx);
                             }
                             let checking = self.health.values().any(|h| matches!(h, HealthView::Running));
                             let check_label = if checking { "Проверяю…" } else { "Проверить сейчас" };
-                            if ui
-                                .add(egui::Button::new(check_label).min_size(Vec2::new(0.0, 44.0)))
+                            if kit::Button::new(check_label, Tone::Plain)
+                                .min(Vec2::new(0.0, 36.0))
+                                .show(ui)
                                 .on_hover_text("Ещё раз проверить всю цепочку: DNS, прокси и сервисы.")
                                 .clicked()
                                 && !checking
                             {
                                 self.start_sweep(&ctx);
                             }
-                            if ui
-                                .add_enabled(
-                                    self.blocker().is_none() && self.busy.is_none(),
-                                    egui::Button::new("Вернуть как было").min_size(Vec2::new(0.0, 44.0)),
-                                )
+                            if kit::Button::new("Вернуть как было", Tone::Plain)
+                                .min(Vec2::new(0.0, 36.0))
+                                .enabled(self.blocker().is_none() && self.busy.is_none())
+                                .show(ui)
                                 .on_hover_text("Выключить обход: DNS снова будет от роутера или провайдера.")
                                 .clicked()
                             {
@@ -263,10 +255,12 @@ impl DnsApp {
                         });
                         self.status_block(ui, p);
                     });
-                    ui.add_space(14.0);
+                    ui.add_space(18.0);
+                    kit::hairline(ui);
+                    ui.add_space(18.0);
 
                     // Защита от сбоев простыми словами.
-                    card(p).inner_margin(Margin::same(18)).show(ui, |ui| {
+                    card().show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
                             let on = self.config.failover.enabled;
@@ -276,19 +270,18 @@ impl DnsApp {
                                 ui.label(
                                     RichText::new(if on { "Защита от сбоев включена" } else { "Защита от сбоев выключена" })
                                         .family(semibold())
-                                        .size(16.0),
+                                        .size(15.0),
                                 );
                                 let text = if on {
-                                    "Если сервер перестанет отвечать, программа сама включит лучший из остальных, а потом \
-                                     вернёт ваш. Запасные Cloudflare и Google не дадут пропасть интернету."
+                                    "Если сервер перестанет отвечать, программа включит другой, а потом вернёт ваш."
                                 } else {
                                     "Если выбранный сервер перестанет отвечать, ИИ-сервисы не откроются, пока вы не \
                                      выберете другой. Включите защиту в настройках."
                                 };
-                                ui.add(egui::Label::new(RichText::new(text).color(p.text_weak)).wrap());
+                                ui.add(egui::Label::new(RichText::new(text).color(p.ink_weak)).wrap());
                                 if let Some(last) = self.log_tail.last() {
                                     ui.add(
-                                        egui::Label::new(RichText::new(format!("Последнее событие: {last}")).small().color(p.text_weak))
+                                        egui::Label::new(RichText::new(format!("Последнее событие: {last}")).small().color(p.ink_weak))
                                             .truncate(),
                                     );
                                 }
@@ -296,27 +289,25 @@ impl DnsApp {
                         });
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            if ui.button("Журнал событий").clicked() {
+                            if kit::plain(ui, "Журнал событий").clicked() {
                                 self.log_tail = state::read_log(200);
                                 self.show_log = true;
                             }
-                            if ui.button("Настроить защиту").clicked() {
+                            if kit::plain(ui, "Настроить защиту").clicked() {
                                 self.view = View::Settings(Section::Protection);
                             }
                         });
                     });
-                    ui.add_space(14.0);
+                    ui.add_space(18.0);
+                    kit::hairline(ui);
+                    ui.add_space(12.0);
 
                     ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(format!("Применяется к: {}", self.chosen_names())).color(p.text_weak));
-                        ui.label(RichText::new("·").color(p.text_weak));
-                        if ui.link(RichText::new("Выбрать сервер вручную").color(p.accent_text)).clicked() {
+                        ui.label(RichText::new(format!("Применяется к: {}", self.chosen_names())).color(p.ink_weak));
+                        ui.label(RichText::new("·").color(p.ink_weak));
+                        if kit::link(ui, "Выбрать сервер вручную", 14.0).clicked() {
                             self.config.ui_mode = UiMode::Advanced;
                             self.save_config();
-                        }
-                        ui.label(RichText::new("·").color(p.text_weak));
-                        if ui.link(RichText::new("Как это работает").color(p.accent_text)).clicked() {
-                            self.view = View::Help;
                         }
                     });
                     ui.add_space(12.0);

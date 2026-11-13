@@ -136,6 +136,9 @@ pub struct Health {
     pub method: Method,
     pub ips: Vec<IpHealth>,
     pub services: Vec<ServiceHealth>,
+    /// По DoH не ответил ни один адрес, а обычный DNS (порт 53) отвечает: так быстро.
+    /// Сервер жив, но с шифрованием сейчас не работает.
+    pub plain_ms: Option<u32>,
 }
 
 impl Health {
@@ -160,6 +163,9 @@ impl Health {
     pub fn problem(&self) -> Option<String> {
         match self.grade() {
             Grade::Good => None,
+            Grade::Dead if self.plain_ms.is_some() => Some(
+                "не отвечает по зашифрованному DNS (DoH), а без шифрования работает".to_string(),
+            ),
             Grade::Dead => Some(format!(
                 "не отвечает: {}",
                 self.ips.iter().find_map(|h| h.result.as_ref().err()).map(String::as_str).unwrap_or("нет ответа")
@@ -258,6 +264,13 @@ pub fn check(server: &DnsServer, use_doh: bool, probes: &[Probe], depth: Depth) 
         .collect();
     working.sort();
     let dns_ips: Vec<IpAddr> = working.into_iter().map(|(_, ip)| ip).collect();
+    // DoH молчит на всех адресах: жив ли сервер без шифрования? У таких серверов
+    // шифрованная часть падает отдельно от обычной, и «не отвечает» вводило бы в заблуждение.
+    let plain_ms = if method == Method::Doh && dns_ips.is_empty() && !server.doh_only {
+        plain_answer(&probe_ips(server))
+    } else {
+        None
+    };
     // Сервисы по очереди: так в каждый момент открыто не больше нескольких соединений.
     let services = match (server.ai_bypass, dns_ips.is_empty()) {
         (true, false) => probes
@@ -267,7 +280,17 @@ pub fn check(server: &DnsServer, use_doh: bool, probes: &[Probe], depth: Depth) 
             .collect(),
         _ => Vec::new(),
     };
-    Health { method, ips, services }
+    Health { method, ips, services, plain_ms }
+}
+
+/// Самый быстрый ответ обычного DNS среди адресов, или None, если не ответил никто.
+fn plain_answer(ips: &[String]) -> Option<u32> {
+    let handles: Vec<_> = ips
+        .iter()
+        .filter_map(|ip| ip.parse::<IpAddr>().ok())
+        .map(|addr| std::thread::spawn(move || resolve(addr, Method::Udp, "", PROBE_NAME).ok().map(|(ms, _)| ms)))
+        .collect();
+    handles.into_iter().filter_map(|h| h.join().ok().flatten()).min()
 }
 
 fn check_service(
@@ -432,6 +455,10 @@ pub struct EndToEnd {
     pub via_server: Option<bool>,
     /// Windows отдаёт настоящие адреса сервиса: обход не действует.
     pub real: Option<bool>,
+    /// Windows отдаёт адрес не из ответа этого сервера (например, запасного).
+    pub other_source: bool,
+    /// Этот чужой адрес — прокси, который не открывается.
+    pub proxy_dead: bool,
 }
 
 impl EndToEnd {
@@ -452,15 +479,25 @@ pub fn end_to_end(server: &DnsServer, health: &Health) -> Option<EndToEnd> {
         .collect();
     server_ips.extend(server.ipv4.iter().filter_map(|s| s.parse::<Ipv4Addr>().ok()));
     let system = system_resolve(&service.domain);
-    let (via_server, real) = match &system {
-        Ok(ips) if !ips.is_empty() => {
+    let (mut via_server, mut real_seen, mut other_source, mut proxy_dead) = (None, None, false, false);
+    if let Ok(ips) = &system {
+        if let Some(&first) = ips.first() {
             let matched = ips.iter().any(|a| server_ips.contains(a));
             let real = reference(&service.domain, QTYPE_A).map(|r| ips.iter().any(|a| r.contains(&IpAddr::V4(*a))));
-            (e2e_verdict(matched, real), real)
+            via_server = e2e_verdict(matched, real);
+            real_seen = real;
+            // Адрес не этого сервера и не настоящий: Windows ушла на запасной сервер
+            // для ИИ. Это нормально, если его прокси открывается.
+            if !matched && real == Some(false) {
+                other_source = true;
+                if retry_once(|| tls_probe(first, &service.domain)).is_err() {
+                    proxy_dead = true;
+                    via_server = Some(false);
+                }
+            }
         }
-        _ => (None, None),
-    };
-    Some(EndToEnd { domain: service.domain.clone(), system, via_server, real })
+    }
+    Some(EndToEnd { domain: service.domain.clone(), system, via_server, real: real_seen, other_source, proxy_dead })
 }
 
 /// `matched`: Windows отдала адрес из ответа сервера; `real`: адрес настоящий.
@@ -722,7 +759,7 @@ mod tests {
 
     fn health(dns_ms: Option<u32>, services: Vec<ServiceHealth>) -> Health {
         let result = dns_ms.ok_or_else(|| "нет ответа".to_string());
-        Health { method: Method::Udp, ips: vec![IpHealth { ip: "1.1.1.1".into(), result }], services }
+        Health { method: Method::Udp, ips: vec![IpHealth { ip: "1.1.1.1".into(), result }], services, plain_ms: None }
     }
 
     #[test]
@@ -804,6 +841,16 @@ mod tests {
                 .collect();
             println!("{ip} {domain:<18} {line}");
         }
+    }
+
+    /// Адреса GeoHide EU, у которых в ноябре 2026 отказывал DoH при живом порте 53.
+    #[test]
+    #[ignore]
+    fn live_plain_fallback() {
+        let mut server = default_servers().into_iter().find(|s| s.name == "GeoHide EU").unwrap();
+        server.ipv4 = vec!["143.20.64.192".into(), "31.25.239.132".into()];
+        let h = check(&server, true, &crate::config::default_probes(), Depth::Quick);
+        println!("{:?} plain_ms={:?}: {}", h.grade(), h.plain_ms, h.problem().unwrap_or_else(|| "работает".into()));
     }
 
     /// Обращается к настоящим серверам: `cargo test -- --ignored --nocapture`.

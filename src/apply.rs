@@ -15,8 +15,9 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Что сделать с выбранными адаптерами.
 #[derive(Clone)]
 pub enum Action {
-    /// `safety_net`: дописать Cloudflare и Google последними адресами.
-    Apply { server: DnsServer, use_doh: bool, safety_net: bool },
+    /// `safety_net`: дописать страховку: `backup` (другой рабочий сервер той же
+    /// группы), затем Cloudflare и Google.
+    Apply { server: DnsServer, use_doh: bool, safety_net: bool, backup: Option<DnsServer> },
     Reset,
 }
 
@@ -77,7 +78,7 @@ pub fn run_locked(_lock: &Lock, action: &Action, adapters: &[Adapter]) -> Vec<Ou
         .map(|a| Outcome {
             adapter: a.name.clone(),
             result: match action {
-                Action::Apply { server, use_doh, safety_net } => apply(a, server, *use_doh, *safety_net),
+                Action::Apply { server, use_doh, safety_net, backup } => apply(a, server, *use_doh, *safety_net, backup.as_ref()),
                 Action::Reset => reset(a).map(|_| Vec::new()),
             },
         })
@@ -93,7 +94,7 @@ pub fn run_locked(_lock: &Lock, action: &Action, adapters: &[Adapter]) -> Vec<Ou
     outcomes
 }
 
-fn apply(adapter: &Adapter, server: &DnsServer, use_doh: bool, safety_net: bool) -> Result<Vec<String>, String> {
+fn apply(adapter: &Adapter, server: &DnsServer, use_doh: bool, safety_net: bool, backup: Option<&DnsServer>) -> Result<Vec<String>, String> {
     let mut warnings = Vec::new();
     if server.doh_only && !(use_doh && server.has_doh()) {
         return Err(format!(
@@ -102,10 +103,14 @@ fn apply(adapter: &Adapter, server: &DnsServer, use_doh: bool, safety_net: bool)
         ));
     }
 
-    // Основной сервер и страховка без повторяющихся адресов.
+    // Основной сервер и страховка без повторяющихся адресов. Первым в страховке
+    // идёт другой рабочий сервер для ИИ: если основной на миг не ответит (DoH в
+    // этой сети иногда рвётся), Windows уйдёт на него, и обход не сломается.
+    // Cloudflare и Google — последними, чтобы интернет был и без серверов для ИИ.
     let mut chain = vec![server.clone()];
     if safety_net {
-        for mut extra in safety_servers() {
+        let extras = backup.filter(|b| !b.doh_only || use_doh).cloned().into_iter().chain(safety_servers());
+        for mut extra in extras {
             extra.ipv4.retain(|ip| !chain.iter().any(|s| s.ipv4.contains(ip)));
             // IPv6-страховка нужна, только если основной сервер сам работает по IPv6.
             if server.ipv6.is_empty() {
@@ -119,20 +124,26 @@ fn apply(adapter: &Adapter, server: &DnsServer, use_doh: bool, safety_net: bool)
     }
 
     // Сначала шифрование: если оно не включится для сервера «только DoH»,
-    // адреса не меняем, иначе сайты перестанут открываться.
-    clear_doh_flags(&adapter.guid);
+    // адреса не меняем, иначе сайты перестанут открываться. Старые отметки DoH
+    // убираются после записи новых: иначе на пару секунд адреса остались бы без
+    // шифрования, а применение заново бывает несколько раз в час.
+    let mut keep: Vec<String> = Vec::new();
     for (i, s) in chain.iter().enumerate() {
         if !(use_doh && s.has_doh()) {
             continue;
         }
-        if let Err(e) = enable_doh(adapter, s) {
-            if i == 0 && s.doh_only {
-                clear_doh_flags(&adapter.guid);
-                return Err(format!("Не удалось включить DoH, без него {} не работает. {e}", s.name));
+        match enable_doh(adapter, s) {
+            Ok(()) => keep.extend(s.all_ips().map(String::from)),
+            Err(e) => {
+                if i == 0 && s.doh_only {
+                    clear_doh_flags(&adapter.guid);
+                    return Err(format!("Не удалось включить DoH, без него {} не работает. {e}", s.name));
+                }
+                warnings.push(format!("DoH для {} не включён, запросы к нему пойдут без шифрования. {e}", s.name));
             }
-            warnings.push(format!("DoH для {} не включён, запросы к нему пойдут без шифрования. {e}", s.name));
         }
     }
+    prune_doh_flags(&adapter.guid, &keep);
 
     let v4: Vec<String> = chain.iter().flat_map(|s| s.ipv4.iter().cloned()).collect();
     let v6: Vec<String> = chain.iter().flat_map(|s| s.ipv6.iter().cloned()).collect();
@@ -230,6 +241,19 @@ fn enable_doh(adapter: &Adapter, server: &DnsServer) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Убирает отметки DoH для адресов, которых больше нет в списке подключения.
+fn prune_doh_flags(guid: &str, keep: &[String]) {
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    for sub in ["Doh", "Doh6"] {
+        let path = format!(r"{DNSCACHE_IFACES}\{}\DohInterfaceSettings\{sub}", guid.to_lowercase());
+        let Ok(key) = hklm.open_subkey_with_flags(&path, winreg::enums::KEY_ALL_ACCESS) else { continue };
+        let stale: Vec<String> = key.enum_keys().flatten().filter(|ip| !keep.iter().any(|k| k.eq_ignore_ascii_case(ip))).collect();
+        for ip in stale {
+            let _ = key.delete_subkey_all(&ip);
+        }
+    }
 }
 
 fn clear_doh_flags(guid: &str) {

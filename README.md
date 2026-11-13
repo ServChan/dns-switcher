@@ -28,6 +28,8 @@ Windows 10/11 app that keeps a list of DNS servers, applies or resets one in a s
 - **Браузеры со своим защищённым DNS** (Chrome, Chromium, Edge, Яндекс, Brave, Opera, Opera GX, Comet, Vivaldi, Firefox): находит и исправляет.
 - **Защита от сбоев**: после двух плохих проверок подряд переключается на лучший сервер, затем на обычные DNS и DNS от роутера, а потом возвращается к выбранному. Работает в фоне через Планировщик, со значком и уведомлениями.
 - **Обновления**: раз в день подписанный список серверов и проверка новой версии. Всё скачанное проверяется подписью ed25519.
+- **Стартовый список** (адреса проверены в ноябре 2026): MagicDNS, Pereval, Dagami DNS, GeoHide EU, dns-ai, Zapret DNS, malw.link, WLRus, GeoHide RU и Comss DNS для ИИ; AdGuard DNS, Quad9, Яндекс DNS, OpenDNS, Google и Cloudflare обычные. Новая версия применяет встроенный список при первом запуске.
+- **«Только без шифрования»**: если у сервера отказал DoH, а обычный DNS работает, проверка так и пишет и подсказывает выключить шифрование.
 
 ### Установка
 
@@ -56,6 +58,8 @@ A Windows 10/11 app with a list of DNS servers, one-click apply and reset, a ded
 - **Browsers with their own secure DNS** (Chrome, Chromium, Edge, Yandex, Brave, Opera, Opera GX, Comet, Vivaldi, Firefox): detected and fixed.
 - **Failure protection**: after two bad checks in a row it moves to the best server, then to regular DNS and the router's DNS, and later returns to your choice. Runs in the background through Task Scheduler, with a tray icon and notifications.
 - **Updates**: a signed server list once a day and a check for new versions. Everything downloaded is verified with an ed25519 signature.
+- **Built-in list** (addresses checked in November 2026): MagicDNS, Pereval, Dagami DNS, GeoHide EU, dns-ai, Zapret DNS, malw.link, WLRus, GeoHide RU and Comss DNS for AI; AdGuard DNS, Quad9, Yandex DNS, OpenDNS, Google and Cloudflare as regular DNS. A new version applies its built-in list on first start.
+- **"Unencrypted only"**: when a server's DoH fails but plain DNS works, the check says so and suggests turning encryption off.
 
 ### Installation
 

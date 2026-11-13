@@ -100,7 +100,12 @@ pub fn run_loop(stop: Arc<AtomicBool>, in_process: bool) {
             while !stop.load(Ordering::Relaxed) {
                 let cfg = Config::load();
                 if cfg.failover.enabled {
-                    watcher.tick(&cfg);
+                    // Сбой в проверке не должен остановить защиту насовсем: журнал
+                    // получит запись (panic hook), а слежение начнётся заново.
+                    let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| watcher.tick(&cfg))).is_ok();
+                    if !ok {
+                        watcher = Watcher::default();
+                    }
                 } else {
                     watcher.reset();
                     tray::set_tip("Переключатель DNS: защита выключена");
@@ -149,6 +154,9 @@ fn usable(cfg: &Config, s: &DnsServer) -> bool {
 /// Сколько ждать после смены сервера из-за сквозной проверки, прежде чем винить
 /// и следующий: если и он «не доходит», мешает не сервер, а VPN или другая программа.
 const E2E_SWITCH_PAUSE: Duration = Duration::from_secs(3600);
+/// Повторно применять сервер из-за сквозной проверки не чаще этого: если после
+/// применения Windows снова ушла с сервера быстрее, применение не помогает.
+const REAPPLY_GAP: Duration = Duration::from_secs(600);
 
 #[derive(Default)]
 struct Watcher {
@@ -157,8 +165,6 @@ struct Watcher {
     offline_logged: bool,
     /// Уже записали в журнал, что лучше текущего сервера ничего нет.
     stuck_logged: bool,
-    /// Сколько проверок подряд Windows получает ответы не от выбранного сервера.
-    e2e_fail: u32,
     /// Состояние, которое защита видела на прошлой проверке. Если его поменяло окно
     /// («Применить», «Сбросить»), счётчики относятся к другому серверу и сбрасываются.
     seen: Option<(Option<String>, Option<String>, bool, Vec<String>)>,
@@ -179,8 +185,13 @@ struct Memory {
     returned_at: Option<Instant>,
     /// Сколько удачных проверок подряд нужно для возврата (растёт, если сервер сбоит).
     return_needed: u32,
-    /// Когда сервер последний раз сменили из-за сквозной проверки.
-    e2e_switched_at: Option<Instant>,
+    /// На какой сервер и когда переключились из-за сквозной проверки.
+    e2e_switched_to: Option<(String, Instant)>,
+    /// С какого сервера и когда ушли из-за сквозной проверки: сам сервер при этом
+    /// отвечает, поэтому возвращаться к нему по одной его проверке нельзя.
+    e2e_left: Option<(String, Instant)>,
+    /// Когда сервер последний раз применяли заново из-за сквозной проверки.
+    last_reapply: Option<Instant>,
     /// Уже записали, что ответы перехватывает не сервер.
     e2e_blame_told: bool,
     /// Когда последний раз искали сервер для ИИ взамен обычного резервного.
@@ -200,6 +211,8 @@ impl Watcher {
             h.pop_front();
         }
         self.mem.snapshot.history.insert(name.to_string(), h.iter().map(|g| g.code()).collect());
+        // Сразу на диск: по этой истории выбирается сервер страховки при смене DNS.
+        self.mem.snapshot.save();
     }
 
     /// Средняя оценка за последние проверки (в десятых), для выбора резерва.
@@ -243,8 +256,8 @@ impl Watcher {
         if told != self.mem.browsers_told {
             if !own.is_empty() {
                 state::log(&format!(
-                    "{} обходит DNS Windows (свой защищённый DNS или режим «автоматически»): обход ограничений там не действует.",
-                    told
+                    "{told} {} DNS Windows (свой защищённый DNS или режим «автоматически»): обход ограничений там не действует.",
+                    if own.len() > 1 { "обходят" } else { "обходит" }
                 ));
                 if cfg.notify.problems {
                     tray::notify(
@@ -420,10 +433,6 @@ impl Watcher {
         let mut grade = health.grade();
         // Причина, когда сбой нашла сквозная проверка, а не проверка самого сервера.
         let mut forced_reason: Option<String> = None;
-        // Без интернета сервер ни при чём: в историю надёжности это не пишем.
-        if grade != Grade::Dead || health::internet_ok() {
-            self.remember(&active.name, grade);
-        }
 
         // IPv6: сервер отдаёт настоящий адрес, а у подключения есть IPv6 — обход течёт.
         let leak: Vec<&str> = health.services.iter().filter(|s| s.ipv6_leak).map(|s| s.name.as_str()).collect();
@@ -449,29 +458,35 @@ impl Watcher {
                 self.mem.snapshot.e2e_ok = e2e.via_server;
                 self.mem.snapshot.e2e_detail = match &e2e.system {
                     Ok(ips) => format!(
-                        "{} через Windows: {}",
+                        "{} через Windows: {}{}",
                         e2e.domain,
-                        ips.iter().map(|ip| ip.to_string()).collect::<Vec<_>>().join(", ")
+                        ips.iter().map(|ip| ip.to_string()).collect::<Vec<_>>().join(", "),
+                        if e2e.other_source { " (через запасной сервер)" } else { "" }
                     ),
                     Err(e) => format!("{}: {e}", e2e.domain),
                 };
                 if e2e.ok() {
-                    self.e2e_fail = 0;
                     self.mem.e2e_blame_told = false;
                 } else {
-                    self.e2e_fail += 1;
                     let why = if e2e.real == Some(true) {
                         "Windows получает настоящие адреса: похоже, ушла на страховочные Cloudflare и Google"
+                    } else if e2e.proxy_dead {
+                        "Windows получает адреса прокси, которые не открываются: похоже, ушла на запасной сервер, а у него сбой"
                     } else {
                         "Windows получает ответы не от этого сервера"
                     };
-                    let switched_recently = self.mem.e2e_switched_at.is_some_and(|t| t.elapsed() < E2E_SWITCH_PAUSE);
-                    if self.e2e_fail == 1 {
+                    let reapplied_recently = self.mem.last_reapply.is_some_and(|t| t.elapsed() < REAPPLY_GAP);
+                    // Сюда переключились из-за сквозной проверки, а ответы снова чужие:
+                    // дело не в сервере, перебор серверов не поможет.
+                    let switched_here =
+                        self.mem.e2e_switched_to.as_ref().is_some_and(|(n, t)| *n == active.name && t.elapsed() < E2E_SWITCH_PAUSE);
+                    if !reapplied_recently {
+                        // Применение заново сбрасывает выбор Windows: она снова спрашивает
+                        // выбранный сервер, а не страховочный.
                         state::log(&format!("«{}» — {why}. Применяю его заново.", active.name));
                         switch_to(cfg, &mut st, &adapters, &health::prefer_working(&active, &health));
-                    } else if switched_recently {
-                        // Уже меняли сервер по этой причине, а ответы всё равно чужие:
-                        // перебор серверов не поможет.
+                        self.mem.last_reapply = Some(Instant::now());
+                    } else if switched_here {
                         if !self.mem.e2e_blame_told {
                             state::log(&format!(
                                 "«{}» — {why}. С прошлым сервером было так же, поэтому похоже, что DNS \
@@ -481,13 +496,17 @@ impl Watcher {
                             self.mem.e2e_blame_told = true;
                         }
                     } else {
-                        state::log(&format!("«{}» — {why}, повторное применение не помогло.", active.name));
                         grade = Grade::Slow;
-                        forced_reason = Some(why.to_string());
+                        forced_reason = Some(format!("{why}, и применение заново не помогло"));
                     }
                 }
             }
             self.mem.snapshot.save();
+        }
+        // Оценка с учётом сквозной проверки; без интернета сервер ни при чём, в историю
+        // надёжности это не пишем.
+        if grade != Grade::Dead || health::internet_ok() {
+            self.remember(&active.name, grade);
         }
 
         if grade.acceptable() {
@@ -564,7 +583,8 @@ impl Watcher {
             if switch_to(cfg, &mut st, &adapters, &health::prefer_working(&s, &h)) {
                 self.note_left_preferred(&active.name, &st);
                 if forced_reason.is_some() {
-                    self.mem.e2e_switched_at = Some(Instant::now());
+                    self.mem.e2e_switched_to = Some((s.name.clone(), Instant::now()));
+                    self.mem.e2e_left = Some((active.name.clone(), Instant::now()));
                 }
                 state::log(&format!("Переключено с «{}» на «{}». Причина: «{}» — {reason}.", active.name, s.name, active.name));
                 state::log(&choice_note(&s.name, &h, &checked));
@@ -630,6 +650,11 @@ impl Watcher {
         let Some(preferred) = st.preferred.as_ref().and_then(|n| cfg.find(n)).filter(|p| usable(cfg, p)).cloned() else {
             return;
         };
+        // С сервера ушли из-за сквозной проверки: его собственная проверка тогда была
+        // хорошей и ничего не говорит. Возвращаемся не раньше чем через час.
+        if self.mem.e2e_left.as_ref().is_some_and(|(n, t)| *n == preferred.name && t.elapsed() < E2E_SWITCH_PAUSE) {
+            return;
+        }
         let h = health::check(&preferred, cfg.use_doh, &cfg.probes, Depth::Quick);
         if h.grade().acceptable() {
             self.return_streak += 1;
@@ -752,6 +777,48 @@ pub(crate) fn apply_list(list: &crate::config::ServerList) -> Vec<String> {
     changes
 }
 
+/// Список, встроенный в эту версию программы, новее последнего применённого: после
+/// обновления программы установленная копия получает исправленные адреса сразу, не дожидаясь
+/// подписанного списка с сервера. Правила те же: свои правки и выбранный сервер остаются.
+pub fn apply_embedded_list() {
+    let cfg = Config::load();
+    let list = crate::config::embedded_list();
+    if !cfg.updates.server_list || list.version <= cfg.remote_list_version {
+        return;
+    }
+    let changes = apply_list(&list);
+    if !changes.is_empty() {
+        state::log(&format!("Список серверов обновлён до версии {} из новой версии программы: {}.", list.version, changes.join(", ")));
+    }
+}
+
+/// Сервер страховки для `server`: другой сервер той же группы, который по последним
+/// проверкам работает (по истории защиты), при равенстве — выше в списке. Только для
+/// серверов обхода ИИ: для обычных DNS страховкой и так служат Cloudflare и Google.
+pub(crate) fn backup_for(cfg: &Config, server: &DnsServer) -> Option<DnsServer> {
+    if !server.ai_bypass {
+        return None;
+    }
+    backup_from(cfg, server, &Snapshot::load().history)
+}
+
+fn backup_from(cfg: &Config, server: &DnsServer, history: &HashMap<String, Vec<u8>>) -> Option<DnsServer> {
+    let (same, _) = candidates(cfg, server);
+    same.into_iter()
+        .enumerate()
+        .filter_map(|(i, s)| {
+            let h = history.get(&s.name).filter(|h| !h.is_empty());
+            // Последняя проверка неудачная — в страховку не годится.
+            if h.is_some_and(|h| h.last().is_some_and(|g| *g > 1)) {
+                return None;
+            }
+            let rank = h.map_or(20, |h| h.iter().map(|g| *g as u32 * 10).sum::<u32>() / h.len() as u32);
+            Some(((rank, i), s))
+        })
+        .min_by_key(|(key, _)| *key)
+        .map(|(_, s)| s)
+}
+
 /// Выбранный сервер и остальные его группы, которые можно поставить: выбранный первым.
 fn ai_group(cfg: &Config, preferred: &DnsServer) -> Vec<DnsServer> {
     let mut list: Vec<DnsServer> = Vec::new();
@@ -796,14 +863,27 @@ pub(crate) fn candidates_note(checked: &[(DnsServer, Health)], skip: Option<&str
         .join("; ")
 }
 
-/// Проверяет серверы параллельно, порядок списка сохраняется.
-/// Проверяет серверы по очереди, порядок списка сохраняется. По очереди, а не все
-/// сразу: всплеск соединений сеть портит, и сравнение выходит нечестным.
+/// Сколько серверов проверяется одновременно.
+const CHECK_AT_ONCE: usize = 3;
+
+/// Проверяет серверы небольшими группами, порядок списка сохраняется. Не все сразу:
+/// всплеск соединений сеть портит, и сравнение выходит нечестным. Но и не строго по
+/// одному: в длинном списке каждый неотвечающий сервер стоил бы несколько секунд ожидания.
 pub(crate) fn check_all(cfg: &Config, servers: &[DnsServer]) -> Vec<(DnsServer, Health)> {
-    servers
-        .iter()
-        .map(|s| (s.clone(), health::check(s, cfg.use_doh, &cfg.probes, Depth::Quick)))
-        .collect()
+    let mut out = Vec::with_capacity(servers.len());
+    for group in servers.chunks(CHECK_AT_ONCE) {
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = group
+                .iter()
+                .map(|s| scope.spawn(move || health::check(s, cfg.use_doh, &cfg.probes, Depth::Quick)))
+                .collect();
+            for (s, handle) in group.iter().zip(handles) {
+                let health = handle.join().unwrap_or(Health { method: health::Method::Udp, ips: Vec::new(), services: Vec::new(), plain_ms: None });
+                out.push((s.clone(), health));
+            }
+        });
+    }
+    out
 }
 
 /// Лучший сервер с оценкой строже `than`. При равной оценке выигрывает более
@@ -856,6 +936,7 @@ fn switch_with(_cfg: &Config, st: &mut RuntimeState, adapters: &[Adapter], serve
         server: server.clone(),
         use_doh: cfg.use_doh,
         safety_net: cfg.failover.safety_net,
+        backup: backup_for(&cfg, server),
     };
     let outcomes = apply::run_locked(&lock, &action, adapters);
     let ok = outcomes.iter().any(|o| o.result.is_ok());
@@ -936,7 +1017,8 @@ mod tests {
         let (same, fallback) = candidates(&cfg, comss);
         let ai: Vec<String> = cfg.servers.iter().filter(|s| s.ai_bypass && s.name != "Comss DNS").map(|s| s.name.clone()).collect();
         assert_eq!(names(same), ai);
-        assert_eq!(names(fallback), ["AdGuard DNS", "Google Public DNS", "Cloudflare"]);
+        let regular: Vec<String> = cfg.servers.iter().filter(|s| !s.ai_bypass).map(|s| s.name.clone()).collect();
+        assert_eq!(names(fallback), regular);
     }
 
     #[test]
@@ -953,7 +1035,9 @@ mod tests {
     fn regular_server_has_no_separate_fallback() {
         let cfg = Config::default();
         let (same, fallback) = candidates(&cfg, cfg.find("Google Public DNS").unwrap());
-        assert_eq!(names(same), ["AdGuard DNS", "Cloudflare"]);
+        let others: Vec<String> =
+            cfg.servers.iter().filter(|s| !s.ai_bypass && s.name != "Google Public DNS").map(|s| s.name.clone()).collect();
+        assert_eq!(names(same), others);
         assert!(fallback.is_empty());
     }
 
@@ -972,6 +1056,7 @@ mod tests {
         };
         let proxy = if proxy_ok { Ok(50) } else { Err("прокси не отвечает".to_string()) };
         let h = Health {
+            plain_ms: None,
             method: Method::Udp,
             ips: vec![IpHealth { ip: "1.1.1.1".into(), result: dns_ms.ok_or_else(|| "нет ответа".to_string()) }],
             services: vec![ServiceHealth {
@@ -1014,6 +1099,21 @@ mod tests {
         // Уход с резервного сервера порог не трогает.
         w.note_left_preferred("B", &st);
         assert_eq!(w.mem.return_needed, MAX_RETURN);
+    }
+
+    #[test]
+    fn backup_is_a_working_server_of_the_same_group() {
+        let cfg = Config::default();
+        let magic = cfg.find("MagicDNS").unwrap().clone();
+        let mut history = HashMap::new();
+        // Pereval выше в списке, но последняя проверка неудачная: берём надёжный по истории.
+        history.insert("Pereval".to_string(), vec![0, 0, 3]);
+        history.insert("dns-ai".to_string(), vec![0, 0, 0]);
+        assert_eq!(backup_from(&cfg, &magic, &history).unwrap().name, "dns-ai");
+        // Без истории — первый по списку после самого сервера.
+        assert_eq!(backup_from(&cfg, &magic, &HashMap::new()).unwrap().name, "Pereval");
+        // Для обычного DNS отдельной страховки нет.
+        assert!(backup_for(&cfg, cfg.find("Cloudflare").unwrap()).is_none());
     }
 
     #[test]
