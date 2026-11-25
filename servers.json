@@ -1,15 +1,6 @@
 {
-  "version": 2,
+  "version": 3,
   "servers": [
-    {
-      "name": "MagicDNS",
-      "ipv4": ["217.144.190.216", "109.120.187.249"],
-      "ipv6": [],
-      "doh": "https://api.magicinfo.art/rpc",
-      "ai_bypass": true,
-      "doh_only": false,
-      "note": "magicdns.ru. Gemini, AI Studio, ChatGPT, Claude, Copilot, Perplexity, Grok и ещё 30+ сервисов. Адреса сменились 4 ноября 2026."
-    },
     {
       "name": "Pereval",
       "ipv4": ["153.80.200.170"],
@@ -17,25 +8,7 @@
       "doh": "https://free.pereval.top/dns-query",
       "ai_bypass": true,
       "doh_only": false,
-      "note": "pereval.top, бесплатный тариф без регистрации. Claude, ChatGPT, Gemini, AI Studio, NotebookLM, Grok, Copilot, Cursor. IPv6 лучше выключить."
-    },
-    {
-      "name": "Dagami DNS",
-      "ipv4": ["48.102.213.179"],
-      "ipv6": [],
-      "doh": "https://dns.dagami.ru/dns-query",
-      "ai_bypass": true,
-      "doh_only": false,
-      "note": "dns.dagami.ru. ChatGPT, Gemini, Copilot, GitHub, OpenRouter. Claude может показать проверку Cloudflare."
-    },
-    {
-      "name": "GeoHide EU",
-      "ipv4": ["5.175.161.40", "37.221.93.141", "143.20.64.192", "31.25.239.132"],
-      "ipv6": [],
-      "doh": "https://eu.geohide.ru/dns-query",
-      "ai_bypass": true,
-      "doh_only": false,
-      "note": "eu.geohide.ru. DNS и прокси в Европе: ChatGPT, Gemini, Claude, Grok."
+      "note": "pereval.top. Бесплатный сервер free.pereval.top с поддержкой DoH и обычного DNS по IPv4."
     },
     {
       "name": "dns-ai",
@@ -44,7 +17,7 @@
       "doh": "https://dns.dns-ai.ru/dns-query",
       "ai_bypass": true,
       "doh_only": true,
-      "note": "dns-ai.ru. Только зашифрованный DNS: обычный порт 53 отвечает лишь российским адресам. Gemini бывает недоступен."
+      "note": "dns-ai.ru. Публичный порт 53 отключён. Резервный DoH для браузера: cf.dns-ai.ru."
     },
     {
       "name": "Zapret DNS",
@@ -53,16 +26,25 @@
       "doh": "https://dns.zapret.moe/dns-query",
       "ai_bypass": true,
       "doh_only": true,
-      "note": "zapret.moe. 20 ИИ-сервисов: ChatGPT, Gemini, Claude, Grok, Copilot, Cursor, OpenRouter. Только зашифрованный DNS через Cloudflare."
+      "note": "dns.zapret.moe. Только DoH через Cloudflare. IP-адреса могут меняться."
     },
     {
-      "name": "malw.link",
-      "ipv4": ["179.254.166.171", "164.5.224.81"],
-      "ipv6": ["2a12:bec4:1bb0:27dd::2", "2a13:82c0:0:d::3"],
-      "doh": "https://dns.malw.link/dns-query",
+      "name": "GeoHide EU",
+      "ipv4": ["37.221.93.141"],
+      "ipv6": [],
+      "doh": "https://eu.geohide.ru/dns-query",
       "ai_bypass": true,
       "doh_only": false,
-      "note": "dns.malw.link. ChatGPT, Claude, Gemini, NotebookLM, AI Studio, Grok, Copilot. Прокси иногда пропадают."
+      "note": "geohide.ru. DNS и прокси в Европе. Доступность DoH зависит от узла и сети."
+    },
+    {
+      "name": "GeoHide RU",
+      "ipv4": ["37.230.192.51", "193.233.112.88"],
+      "ipv6": [],
+      "doh": "https://dns.geohide.ru/dns-query",
+      "ai_bypass": true,
+      "doh_only": false,
+      "note": "dns.geohide.ru. Основной пул GeoHide: DNS в России, прокси за границей."
     },
     {
       "name": "WLRus",
@@ -71,25 +53,43 @@
       "doh": "https://dns.wlrus.cfd/dns-query",
       "ai_bypass": true,
       "doh_only": false,
-      "note": "dns.wlrus.cfd. ChatGPT, Gemini, Claude. Официальной страницы нет."
+      "note": "site.dns.wlrus.cfd. DoH и обычный DNS. На сайте провайдера есть статус и инструкции."
     },
     {
-      "name": "GeoHide RU",
-      "ipv4": ["193.233.112.67", "193.233.112.88", "37.230.192.51"],
+      "name": "MagicDNS",
+      "ipv4": ["217.144.190.216", "109.120.187.249"],
       "ipv6": [],
-      "doh": "https://dns.geohide.ru/dns-query",
+      "doh": "https://dns.magicdns.ru/dns-query",
+      "ai_bypass": true,
+      "doh_only": true,
+      "note": "magicdns.ru. Доступ к ИИ-сервисам и фильтрация рекламы. Обычный DNS на порту 53 отключён."
+    },
+    {
+      "name": "Dagami DNS",
+      "ipv4": ["48.102.213.179"],
+      "ipv6": [],
+      "doh": "https://dns.dagami.ru/dns-query",
       "ai_bypass": true,
       "doh_only": false,
-      "note": "dns.geohide.ru. Основной пул GeoHide: DNS в России, прокси за границей."
+      "note": "dagami.ru. Основной сервер. У резервного узла doh.dagami.ru свой шаблон DoH."
+    },
+    {
+      "name": "malw.link",
+      "ipv4": ["179.254.166.171", "164.5.224.81"],
+      "ipv6": ["2a12:bec4:1bb0:27dd::2", "2a13:82c0:0:d::3"],
+      "doh": "https://dns.malw.link/dns-query",
+      "ai_bypass": true,
+      "doh_only": false,
+      "note": "info.dns.malw.link. Доступ к ограниченным сайтам и фильтрация рекламы. На сайте есть альтернативный DoH через Cloudflare."
     },
     {
       "name": "Comss DNS",
-      "ipv4": ["141.133.183.77", "141.133.184.24", "212.109.195.93"],
+      "ipv4": ["141.133.183.77", "141.133.184.24", "155.212.172.101"],
       "ipv6": [],
       "doh": "https://dns.comss.one/dns-query",
-      "ai_bypass": true,
+      "ai_bypass": false,
       "doh_only": false,
-      "note": "comss.one. ИИ-сервисы обходит только для российских адресов, бесплатно в основном Gemini. Блокирует рекламу."
+      "note": "comss.one. Блокирует рекламу, трекеры, фишинг и вредоносные сайты."
     },
     {
       "name": "AdGuard DNS",
@@ -116,7 +116,7 @@
       "doh": "https://common.dot.dns.yandex.net/dns-query",
       "ai_bypass": false,
       "doh_only": false,
-      "note": "Серверы в России: быстро открывает российские сайты."
+      "note": "Базовый режим Яндекс DNS без фильтрации."
     },
     {
       "name": "OpenDNS",
@@ -125,7 +125,7 @@
       "doh": "https://doh.opendns.com/dns-query",
       "ai_bypass": false,
       "doh_only": false,
-      "note": ""
+      "note": "Публичный DNS Cisco OpenDNS."
     },
     {
       "name": "Google Public DNS",
@@ -134,7 +134,7 @@
       "doh": "https://dns.google/dns-query",
       "ai_bypass": false,
       "doh_only": false,
-      "note": ""
+      "note": "Публичный DNS Google."
     },
     {
       "name": "Cloudflare",
@@ -143,7 +143,7 @@
       "doh": "https://cloudflare-dns.com/dns-query",
       "ai_bypass": false,
       "doh_only": false,
-      "note": ""
+      "note": "Публичный DNS Cloudflare 1.1.1.1 без фильтрации."
     }
   ]
 }
